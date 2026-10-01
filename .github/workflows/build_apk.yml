@@ -30,16 +30,20 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Modyfikacja minSdkVersion do wersji 21 dla Google ML Kit
+      - name: Aktualizacja wersji Android SDK i minSdkVersion
         run: |
           sed -i 's/minSdkVersion .*/minSdkVersion 21/' android/app/build.gradle || true
           sed -i 's/flutter.minSdkVersion/21/' android/app/build.gradle || true
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' android/app/build.gradle || true
+          sed -i 's/flutter.compileSdkVersion/34/' android/app/build.gradle || true
+          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' android/app/build.gradle || true
+          sed -i 's/flutter.targetSdkVersion/34/' android/app/build.gradle || true
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
 
       - name: Budowanie pliku APK (Release)
-        run: flutter build apk --release --no-tree-shake-icons
+        run: flutter build apk --release --no-tree-shake-icons --no-shrink
 
       - name: Udostępnienie pliku APK do pobrania
         uses: actions/upload-artifact@v4
