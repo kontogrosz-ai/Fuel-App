@@ -1,465 +1,76 @@
-import 'dart:convert';
-import 'dart:io';
+name: Build Android APK
 
-import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:excel/excel.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
 
-void main() {
-  runApp(const FuelTrackerApp());
-}
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-// Typ paliwa
-enum FuelType { pb, lpg }
+    steps:
+      - name: Checkout kodu
+        uses: actions/checkout@v4
 
-extension FuelTypeExtension on FuelType {
-  String get label {
-    switch (this) {
-      case FuelType.pb:
-        return 'Benzyna (PB)';
-      case FuelType.lpg:
-        return 'LPG';
-    }
-  }
-}
+      - name: Instalacja Javy (Temurin JDK 17)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-// Model wpisu tankowania
-class FuelEntry {
-  final String id;
-  final DateTime date;
-  final FuelType fuelType;
-  final double liters;
-  final double pricePerLiter;
-  final double totalPrice;
+      - name: Instalacja Fluttera
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
 
-  FuelEntry({
-    required this.id,
-    required this.date,
-    required this.fuelType,
-    required this.liters,
-    required this.pricePerLiter,
-    required this.totalPrice,
-  });
+      - name: Generowanie czystej struktury Android
+        run: |
+          rm -rf android
+          flutter create . --platforms=android --org com.example.fueltracker
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'date': date.toIso8601String(),
-        'fuelType': fuelType.index,
-        'liters': liters,
-        'pricePerLiter': pricePerLiter,
-        'totalPrice': totalPrice,
-      };
-
-  factory FuelEntry.fromJson(Map<String, dynamic> json) => FuelEntry(
-        id: json['id'],
-        date: DateTime.parse(json['date']),
-        fuelType: FuelType.values[json['fuelType']],
-        liters: (json['liters'] as num).toDouble(),
-        pricePerLiter: (json['pricePerLiter'] as num).toDouble(),
-        totalPrice: (json['totalPrice'] as num).toDouble(),
-      );
-}
-
-class FuelTrackerApp extends StatelessWidget {
-  const FuelTrackerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Fuel Tracker',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      home: const HomeScreen(),
-    );
-  }
-}
-
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  final List<FuelEntry> _entries = [];
-  final ImagePicker _picker = ImagePicker();
-  final TextRecognizer _textRecognizer =
-      TextRecognizer(script: TextRecognitionScript.latin);
-  bool _isLoading = false;
-
-  @override
-  void dispose() {
-    _textRecognizer.close();
-    super.dispose();
-  }
-
-  // Skanowanie paragonu za pomocą ML Kit Text Recognition
-  Future<void> _scanReceipt() async {
-    final XFile? image = await _picker.pickImage(source: ImageSource.camera);
-    if (image == null) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final inputImage = InputImage.fromFilePath(image.path);
-      final RecognizedText recognizedText =
-          await _textRecognizer.processImage(inputImage);
-
-      double? detectedTotal;
-      double? detectedLiters;
-
-      // Wykrywanie kwot z rozpoznanego tekstu (wzorzec liczby z przecinkiem/kropką)
-      final RegExp numRegex = RegExp(r'\d+[.,]\d{2}');
-      final matches =
-          numRegex.allMatches(recognizedText.text).map((m) => m.group(0)).toList();
-
-      if (matches.isNotEmpty) {
-        final parsedValues = matches
-            .map((e) => double.tryParse(e!.replaceAll(',', '.')))
-            .whereType<double>()
-            .toList();
-
-        if (parsedValues.isNotEmpty) {
-          parsedValues.sort();
-          detectedTotal = parsedValues.last; // Największa wartość to zazwyczaj SUMA
-          if (parsedValues.length > 1) {
-            detectedLiters = parsedValues[parsedValues.length - 2];
-          }
-        }
-      }
-
-      if (!mounted) return;
-      _showAddEntryDialog(
-        initialLiters: detectedLiters,
-        initialTotalPrice: detectedTotal,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Błąd podczas skanowania paragonu: $e')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  // Eksport historii do arkusza Excel i udostępnianie
-  Future<void> _exportToExcel() async {
-    if (_entries.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Brak wpisów do wyeksportowania.')),
-      );
-      return;
-    }
-
-    try {
-      final excel = Excel.createExcel();
-      final Sheet sheet = excel['Tankowanie'];
-      excel.setDefaultSheet('Tankowanie');
-
-      // Nagłówki tabeli
-      sheet.appendRow([
-        TextCellValue('Data'),
-        TextCellValue('Rodzaj Paliwa'),
-        TextCellValue('Ilość (L)'),
-        TextCellValue('Cena / L (PLN)'),
-        TextCellValue('Razem (PLN)'),
-      ]);
-
-      // Dane
-      for (final entry in _entries) {
-        sheet.appendRow([
-          TextCellValue(entry.date.toString().substring(0, 10)),
-          TextCellValue(entry.fuelType.label),
-          DoubleCellValue(entry.liters),
-          DoubleCellValue(entry.pricePerLiter),
-          DoubleCellValue(entry.totalPrice),
-        ]);
-      }
-
-      final fileBytes = excel.save();
-      if (fileBytes == null) return;
-
-      final directory = await getApplicationDocumentsDirectory();
-      final filePath =
-          '${directory.path}/tankowanie_${DateTime.now().millisecondsSinceEpoch}.xlsx';
-      final file = File(filePath);
-      await file.writeAsBytes(fileBytes);
-
-      await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Raport tankowania paliwa',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Błąd podczas generowania pliku Excel: $e')),
-      );
-    }
-  }
-
-  void _addEntry(FuelEntry entry) {
-    setState(() {
-      _entries.insert(0, entry);
-    });
-  }
-
-  void _deleteEntry(String id) {
-    setState(() {
-      _entries.removeWhere((e) => e.id == id);
-    });
-  }
-
-  // Okno formularza dodawania tankowania
-  void _showAddEntryDialog({double? initialLiters, double? initialTotalPrice}) {
-    final litersController = TextEditingController(
-      text: initialLiters != null ? initialLiters.toStringAsFixed(2) : '',
-    );
-    final totalController = TextEditingController(
-      text: initialTotalPrice != null ? initialTotalPrice.toStringAsFixed(2) : '',
-    );
-    final pricePerLiterController = TextEditingController();
-
-    FuelType selectedFuelType = FuelType.pb;
-    DateTime selectedDate = DateTime.now();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            void calculatePricePerLiter() {
-              final liters =
-                  double.tryParse(litersController.text.replaceAll(',', '.')) ?? 0;
-              final total =
-                  double.tryParse(totalController.text.replaceAll(',', '.')) ?? 0;
-              if (liters > 0 && total > 0) {
-                pricePerLiterController.text = (total / liters).toStringAsFixed(2);
-              }
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Dodaj nowe tankowanie',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<FuelType>(
-                  value: selectedFuelType,
-                  decoration: const InputDecoration(
-                    labelText: 'Rodzaj paliwa',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: FuelType.values.map((type) {
-                    return DropdownMenuItem(
-                      value: type,
-                      child: Text(type.label),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) setModalState(() => selectedFuelType = val);
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: litersController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Ilość litrów (L)',
-                    border: OutlineInputBorder(),
-                    suffixText: 'L',
-                  ),
-                  onChanged: (_) => calculatePricePerLiter(),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: totalController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Kwota całkowita (PLN)',
-                    border: OutlineInputBorder(),
-                    suffixText: 'PLN',
-                  ),
-                  onChanged: (_) => calculatePricePerLiter(),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: pricePerLiterController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Cena za litr (PLN/L)',
-                    border: OutlineInputBorder(),
-                    suffixText: 'PLN/L',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () {
-                      final liters = double.tryParse(
-                              litersController.text.replaceAll(',', '.')) ??
-                          0;
-                      final total = double.tryParse(
-                              totalController.text.replaceAll(',', '.')) ??
-                          0;
-                      final priceL = double.tryParse(
-                              pricePerLiterController.text.replaceAll(',', '.')) ??
-                          (liters > 0 ? total / liters : 0);
-
-                      if (liters <= 0 || total <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Wprowadź poprawne wartości!')),
-                        );
-                        return;
+      - name: Globalna konfiguracja Gradle (Init Script)
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat << 'EOF' > ~/.gradle/init.d/flutter_override.gradle
+          gradle.allprojects { p ->
+              p.afterEvaluate {
+                  if (p.hasProperty('android')) {
+                      p.android.compileSdkVersion = 36
+                      p.android.buildToolsVersion = "34.0.0"
+                      if (p.plugins.hasPlugin('com.android.application')) {
+                          p.android.buildTypes.release.signingConfig = p.android.signingConfigs.debug
                       }
+                  }
+              }
+          }
+          EOF
 
-                      final newEntry = FuelEntry(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        date: selectedDate,
-                        fuelType: selectedFuelType,
-                        liters: liters,
-                        pricePerLiter: priceL,
-                        totalPrice: total,
-                      );
+          echo "flutter.compileSdkVersion=36" >> android/local.properties
+          echo "flutter.targetSdkVersion=36" >> android/local.properties
+          echo "flutter.minSdkVersion=21" >> android/local.properties
+          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-                      _addEntry(newEntry);
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.check),
-                    label: const Text('Zapisz tankowanie'),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
+      - name: Konfiguracja ProGuard
+        run: |
+          cat << 'EOF' > android/app/proguard-rules.pro
+          -keep class com.google.mlkit.** { *; }
+          -keep class com.google.android.gms.** { *; }
+          -dontwarn com.google.mlkit.**
+          -dontwarn com.google.android.gms.**
+          EOF
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Fuel Tracker'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.ios_share),
-            tooltip: 'Eksportuj do Excela',
-            onPressed: _exportToExcel,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.local_gas_station_outlined,
-                          size: 80, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Brak wpisów tankowania',
-                        style:
-                            TextStyle(fontSize: 18, color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Zeskanuj paragon lub dodaj wpis ręcznie.'),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _entries.length,
-                  padding: const EdgeInsets.all(12),
-                  itemBuilder: (context, index) {
-                    final entry = _entries[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      elevation: 2,
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primaryContainer,
-                          child: Icon(
-                            entry.fuelType == FuelType.pb
-                                ? Icons.local_gas_station
-                                ? Icons.local_fire_department,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                        title: Text(
-                          '${entry.fuelType.label} - ${entry.totalPrice.toStringAsFixed(2)} PLN',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          '${entry.liters.toStringAsFixed(2)} L @ ${entry.pricePerLiter.toStringAsFixed(2)} PLN/L\n'
-                          '${entry.date.day}.${entry.date.month}.${entry.date.year}',
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              color: Colors.red),
-                          onPressed: () => _deleteEntry(entry.id),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton.small(
-            heroTag: 'scan_btn',
-            onPressed: _scanReceipt,
-            tooltip: 'Zeskanuj paragon',
-            child: const Icon(Icons.document_scanner),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton(
-            heroTag: 'add_btn',
-            onPressed: () => _showAddEntryDialog(),
-            tooltip: 'Ręczne dodawanie',
-            child: const Icon(Icons.add),
-          ),
-        ],
-      ),
-    );
-  }
-}
+      - name: Pobranie zależności Fluttera
+        run: flutter pub get
+
+      - name: Budowanie pliku APK (Release)
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Udostępnienie pliku APK do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/app/outputs/apk/release/*.apk
