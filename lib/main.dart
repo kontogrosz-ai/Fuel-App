@@ -364,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           entry.odometer ?? '-',
           entry.cost,
           entry.liters,
-          entry.singleConsumption ?? '-',
+          entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
         ]);
       }
 
@@ -375,11 +375,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       sheetObject.appendRow([]);
       sheetObject.appendRow([
         'PODSUMOWANIE',
-        '',
-        '',
-        totalCost,
-        totalLiters,
-        avgCons ?? '-',
+        '-',
+        '-',
+        double.parse(totalCost.toStringAsFixed(2)),
+        double.parse(totalLiters.toStringAsFixed(2)),
+        avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
       ]);
     }
 
