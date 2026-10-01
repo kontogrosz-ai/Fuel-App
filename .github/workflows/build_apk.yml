@@ -25,17 +25,26 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generowanie czystej konfiguracji Androida
+      - name: Generowanie nowej i czystej struktury Android V2 Embedding
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Usunięcie ewentualnych konfliktowych plików Kotlin Script
+      - name: Konfiguracja wersji SDK (Android 36 / API 36)
         run: |
-          rm -f android/app/build.gradle.kts
-          rm -f android/build.gradle.kts
+          sed -i 's/compileSdkVersion .*/compileSdk = 36/' android/app/build.gradle || true
+          sed -i 's/compileSdk .*/compileSdk = 36/' android/app/build.gradle || true
+          sed -i 's/flutter.compileSdkVersion/36/' android/app/build.gradle || true
 
-      - name: Konfiguracja ProGuard dla ML Kit
+          sed -i 's/targetSdkVersion .*/targetSdk = 36/' android/app/build.gradle || true
+          sed -i 's/targetSdk .*/targetSdk = 36/' android/app/build.gradle || true
+          sed -i 's/flutter.targetSdkVersion/36/' android/app/build.gradle || true
+
+          sed -i 's/minSdkVersion .*/minSdk = 21/' android/app/build.gradle || true
+          sed -i 's/minSdk .*/minSdk = 21/' android/app/build.gradle || true
+          sed -i 's/flutter.minSdkVersion/21/' android/app/build.gradle || true
+
+      - name: Konfiguracja ProGuard
         run: |
           cat << 'EOF' > android/app/proguard-rules.pro
           -keep class com.google.mlkit.** { *; }
@@ -43,47 +52,6 @@ jobs:
           -dontwarn com.google.mlkit.**
           -dontwarn com.google.android.gms.**
           EOF
-
-      - name: Nadpisanie konfiguracji android/app/build.gradle
-        run: |
-          cat << 'EOF' > android/app/build.gradle
-          plugins {
-              id "com.android.application"
-              id "kotlin-android"
-              id "dev.flutter.flutter-gradle-plugin"
-          }
-
-          android {
-              namespace "com.example.fueltracker"
-              compileSdk 36
-
-              defaultConfig {
-                  applicationId "com.example.fueltracker"
-                  minSdk 21
-                  targetSdk 36
-                  versionCode 1
-                  versionName "1.0"
-              }
-
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.debug
-                      minifyEnabled false
-                      shrinkResources false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                  }
-              }
-          }
-
-          flutter {
-              source '../..'
-          }
-          EOF
-
-      - name: Wyłączenie R8 w gradle.properties
-        run: |
-          echo "android.enableR8=false" >> android/gradle.properties
-          echo "android.enableR8.fullMode=false" >> android/gradle.properties
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
