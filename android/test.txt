@@ -1,0 +1,10 @@
+1) ustaw LPG jako domyślną zakładkę
+2) Nagłówek: "Spalanie PB & LPG" zmień na "Tanker App"
+
+3) z paragonu nie pobieraj kwoty paliwa, a jedynie ilość paliwa
+4) pobieraj z paragonu datę transakcji
+5) pozwalaj edytować wartości zaczytane z paragonu 
+6) dodaj zapisywanie i przechowywanie danych
+7) możliwość edycji wprowadzonych danych
+8) sortuj dane malejąco według daty transakcji widocznej na paragonie
+9) dodaj możliwość usuwania wybranych wpisów
