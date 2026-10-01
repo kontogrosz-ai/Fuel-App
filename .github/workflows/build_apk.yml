@@ -25,26 +25,21 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generowanie nowej i czystej struktury Android V2 Embedding
+      - name: Generowanie natywnej struktury Android V2
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Konfiguracja wersji SDK (Android 36 / API 36)
+      - name: Globalne wymuszenie wersji SDK we Flutterze (local.properties)
         run: |
-          sed -i 's/compileSdkVersion .*/compileSdk = 36/' android/app/build.gradle || true
-          sed -i 's/compileSdk .*/compileSdk = 36/' android/app/build.gradle || true
-          sed -i 's/flutter.compileSdkVersion/36/' android/app/build.gradle || true
+          echo "flutter.compileSdkVersion=36" >> android/local.properties
+          echo "flutter.targetSdkVersion=36" >> android/local.properties
+          echo "flutter.minSdkVersion=21" >> android/local.properties
+          
+          # Plik local.properties nadpisze domyślne wartości SDK (31) 
+          # dla wszystkich wtyczek podczas kompilacji.
 
-          sed -i 's/targetSdkVersion .*/targetSdk = 36/' android/app/build.gradle || true
-          sed -i 's/targetSdk .*/targetSdk = 36/' android/app/build.gradle || true
-          sed -i 's/flutter.targetSdkVersion/36/' android/app/build.gradle || true
-
-          sed -i 's/minSdkVersion .*/minSdk = 21/' android/app/build.gradle || true
-          sed -i 's/minSdk .*/minSdk = 21/' android/app/build.gradle || true
-          sed -i 's/flutter.minSdkVersion/21/' android/app/build.gradle || true
-
-      - name: Konfiguracja ProGuard
+      - name: Konfiguracja ProGuard i wyłączenie blokad SDK
         run: |
           cat << 'EOF' > android/app/proguard-rules.pro
           -keep class com.google.mlkit.** { *; }
@@ -52,6 +47,8 @@ jobs:
           -dontwarn com.google.mlkit.**
           -dontwarn com.google.android.gms.**
           EOF
+
+          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
