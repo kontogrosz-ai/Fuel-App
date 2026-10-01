@@ -30,7 +30,7 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Wymuszenie SDK 36 dla wszystkich wtyczek w android/build.gradle
+      - name: Wymuszenie SDK 36 dla wszystkich wtyczek
         run: |
           cat << 'EOF' >> android/build.gradle
 
@@ -49,6 +49,30 @@ jobs:
           echo "flutter.compileSdkVersion=36" >> android/local.properties
           echo "flutter.targetSdkVersion=36" >> android/local.properties
           echo "flutter.minSdkVersion=21" >> android/local.properties
+
+      - name: Bezpieczne dodanie podpisu debugowego dla wersji Release
+        run: |
+          python3 -c "
+          import os
+
+          gradle_file = 'android/app/build.gradle'
+          if not os.path.exists(gradle_file):
+              gradle_file = 'android/app/build.gradle.kts'
+
+          if os.path.exists(gradle_file):
+              with open(gradle_file, 'r') as f:
+                  content = f.read()
+
+              if 'build.gradle.kts' in gradle_file:
+                  if 'signingConfig' not in content:
+                      content = content.replace('release {', 'release {\n            signingConfig = signingConfigs.getByName(\"debug\")')
+              else:
+                  if 'signingConfig' not in content:
+                      content = content.replace('release {', 'release {\n            signingConfig signingConfigs.debug')
+
+              with open(gradle_file, 'w') as f:
+                  f.write(content)
+          "
 
       - name: Konfiguracja ProGuard i wyłączenie ostrzeżeń SDK
         run: |
