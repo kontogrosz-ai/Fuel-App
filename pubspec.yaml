@@ -11,22 +11,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Biblioteka do obsługi aparatu i wyboru zdjęć z galerii
   image_picker: ^1.0.7
-
-  # Biblioteka Google ML Kit do rozpoznawania tekstu na paragonach (OCR)
   google_mlkit_text_recognition: ^0.11.0
-
-  # Biblioteka do tworzenia i edycji plików Excel (.xlsx)
-  excel: ^4.0.0
-
-  # Biblioteka do uzyskiwania dostępu do katalogów w pamięci telefonu
+  excel: 2.1.0  # Zablokowana wersja 2.1.0 unikająca konfliktów z klasami Fluttera
   path_provider: ^2.1.2
-
-  # Biblioteka do udostępniania plików (np. eksportowanego Excela)
   share_plus: ^8.0.2
-
-  # Domyślne ikony Material Design
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
