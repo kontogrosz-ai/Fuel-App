@@ -1,5 +1,5 @@
-name: fuel_tracker
-description: Aplikacja do śledzenia zużycia paliwa (PB i LPG) z funkcją OCR.
+name: Fuel_Tracker
+description: Aplikacja do śledzenia zużycia kosztów paliwa (PB i LPG) z funkcją OCR.
 publish_to: 'none'
 
 version: 1.0.0+1
