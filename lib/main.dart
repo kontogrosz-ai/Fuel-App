@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -48,6 +49,29 @@ class FuelEntry {
     }
     return null;
   }
+
+  Map<String, dynamic> toJson() => {
+        'fuelType': fuelType.name,
+        'cost': cost,
+        'liters': liters,
+        'odometer': odometer,
+        'tripDistance': tripDistance,
+        'date': date.toIso8601String(),
+      };
+
+  factory FuelEntry.fromJson(Map<String, dynamic> json) {
+    return FuelEntry(
+      fuelType: FuelType.values.firstWhere(
+        (e) => e.name == json['fuelType'],
+        orElse: () => FuelType.lpg,
+      ),
+      cost: (json['cost'] as num).toDouble(),
+      liters: (json['liters'] as num).toDouble(),
+      odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
+      tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
+      date: DateTime.parse(json['date']),
+    );
+  }
 }
 
 class FuelTrackerApp extends StatelessWidget {
@@ -74,22 +98,58 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  final List<FuelEntry> _entries = [];
+  List<FuelEntry> _entries = [];
   bool _isScanning = false;
+  bool _isLoading = true;
   DateTimeRange? _selectedDateRange;
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    // Ustawienie initialIndex: 1 powoduje, że LPG jest domyślnie wybraną zakładką
     _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
+    _loadEntriesFromFile();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<File> _getJsonFile() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return File('${directory.path}/Dane_Tankowania.json');
+  }
+
+  Future<void> _loadEntriesFromFile() async {
+    try {
+      final file = await _getJsonFile();
+      if (await file.exists()) {
+        final String contents = await file.readAsString();
+        final List<dynamic> jsonList = jsonDecode(contents);
+        setState(() {
+          _entries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint("Błąd wczytywania danych: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveEntriesToFile() async {
+    try {
+      final file = await _getJsonFile();
+      final List<Map<String, dynamic>> jsonList =
+          _entries.map((e) => e.toJson()).toList();
+      await file.writeAsString(jsonEncode(jsonList));
+    } catch (e) {
+      debugPrint("Błąd zapisu danych: $e");
+    }
   }
 
   List<FuelEntry> get _filteredEntries {
@@ -192,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
-    FuelType detectedType = FuelType.lpg; // Domyślnie LPG przy braku dopasowania OCR
+    FuelType detectedType = FuelType.lpg;
 
     if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
       detectedType = FuelType.lpg;
@@ -207,10 +267,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    // Usunięto regex kosztu i jego przetwarzanie
-
     return {
-      'cost': null, // Zawsze przekazujemy null, aby użytkownik musiał ręcznie wpisać koszt
+      'cost': null,
       'liters': detectedLiters,
       'detectedType': detectedType,
     };
@@ -320,6 +378,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       tripDistance: trip,
                     ));
                   });
+                  _saveEntriesToFile();
                 }
                 Navigator.pop(ctx);
               },
@@ -517,39 +576,41 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-      body: _isScanning
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_selectedDateRange != null)
-                  Container(
-                    color: Colors.amber.shade100,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Okres: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+          : _isScanning
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    if (_selectedDateRange != null)
+                      Container(
+                        color: Colors.amber.shade100,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Okres: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            InkWell(
+                              onTap: _clearDateFilter,
+                              child: const Icon(Icons.close, size: 20),
+                            )
+                          ],
                         ),
-                        InkWell(
-                          onTap: _clearDateFilter,
-                          child: const Icon(Icons.close, size: 20),
-                        )
-                      ],
+                      ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildFuelTab(FuelType.pb),
+                          _buildFuelTab(FuelType.lpg),
+                        ],
+                      ),
                     ),
-                  ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildFuelTab(FuelType.pb),
-                      _buildFuelTab(FuelType.lpg),
-                    ],
-                  ),
+                  ],
                 ),
-              ],
-            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _scanReceipt,
         icon: const Icon(Icons.camera_alt),
