@@ -56,7 +56,7 @@ class FuelTrackerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Licznik Paliwa (PB & LPG)',
+      title: 'Tanker App',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
@@ -507,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Spalanie PB & LPG'),
+        title: const Text('Tanker App'),
         actions: [
           IconButton(
             icon: const Icon(Icons.date_range),
