@@ -247,19 +247,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       parsedData['cost'],
       parsedData['liters'],
       parsedData['detectedType'],
+      parsedData['date'],
     );
   }
 
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
     FuelType detectedType = FuelType.lpg;
+    DateTime? detectedDate;
 
+    // 1. Detekcja typu paliwa
     if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
       detectedType = FuelType.lpg;
     } else if (text.toUpperCase().contains('PB') || text.toUpperCase().contains('BENZYNA') || text.toUpperCase().contains('95') || text.toUpperCase().contains('98')) {
       detectedType = FuelType.pb;
     }
 
+    // 2. Detekcja ilości litrów
     final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
     final litersMatch = litersRegex.firstMatch(text);
     if (litersMatch != null) {
@@ -267,18 +271,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
+    // 3. Detekcja daty transakcji (YYYY-MM-DD lub DD.MM.YYYY lub YYYY/MM/DD itp.)
+    final regYMD = RegExp(r'\b(20\d{2})[-./](0[1-9]|1[0-2])[-./](0[1-9]|[12]\d|3[01])\b');
+    final matchYMD = regYMD.firstMatch(text);
+
+    if (matchYMD != null) {
+      int year = int.parse(matchYMD.group(1)!);
+      int month = int.parse(matchYMD.group(2)!);
+      int day = int.parse(matchYMD.group(3)!);
+      detectedDate = DateTime(year, month, day);
+    } else {
+      final regDMY = RegExp(r'\b(0[1-9]|[12]\d|3[01])[-./](0[1-9]|1[0-2])[-./](20\d{2})\b');
+      final matchDMY = regDMY.firstMatch(text);
+      if (matchDMY != null) {
+        int day = int.parse(matchDMY.group(1)!);
+        int month = int.parse(matchDMY.group(2)!);
+        int year = int.parse(matchDMY.group(3)!);
+        detectedDate = DateTime(year, month, day);
+      }
+    }
+
     return {
       'cost': null,
       'liters': detectedLiters,
       'detectedType': detectedType,
+      'date': detectedDate,
     };
   }
 
-  void _showConfirmationDialog(double? initialCost, double? initialLiters, FuelType? initialType) {
+  void _showConfirmationDialog(double? initialCost, double? initialLiters, FuelType? initialType, DateTime? initialDate) {
     final costController = TextEditingController(text: initialCost?.toStringAsFixed(2) ?? '');
     final litersController = TextEditingController(text: initialLiters?.toStringAsFixed(2) ?? '');
     
     FuelType selectedType = initialType ?? FuelType.lpg;
+    DateTime selectedDate = initialDate ?? DateTime.now();
 
     final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
     double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.last.odometer : null;
@@ -306,6 +332,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   },
                 ),
                 const SizedBox(height: 12),
+                
+                // Przycisk wyboru/potwierdzenia daty
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final pickedDate = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now(),
+                    );
+                    if (pickedDate != null) {
+                      setDialogState(() => selectedDate = pickedDate);
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_today, size: 18),
+                  label: Text('Data: ${selectedDate.day}.${selectedDate.month}.${selectedDate.year}'),
+                ),
+                const SizedBox(height: 8),
+
                 TextField(
                   controller: costController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -376,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       liters: liters,
                       odometer: odo,
                       tripDistance: trip,
+                      date: selectedDate,
                     ));
                   });
                   _saveEntriesToFile();
