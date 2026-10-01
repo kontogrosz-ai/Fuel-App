@@ -24,6 +24,9 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Naprawa/Generowanie poprawnych plików Android v2 embedding
+        run: flutter create . --platforms=android --org com.example.fueltracker
+
       - name: Pobranie zależności
         run: flutter pub get
 
