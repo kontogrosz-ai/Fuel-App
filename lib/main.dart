@@ -191,7 +191,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Map<String, dynamic> _extractFuelData(String text) {
-    double? detectedCost;
     double? detectedLiters;
     FuelType detectedType = FuelType.lpg; // Domyślnie LPG przy braku dopasowania OCR
 
@@ -208,20 +207,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    final RegExp costRegex = RegExp(r'(\d+[\.,]\d{2})\s*(PLN|zł)?', caseSensitive: false);
-    final matches = costRegex.allMatches(text);
-
-    for (final match in matches) {
-      String rawValue = match.group(1)!.replaceAll(',', '.');
-      double? val = double.tryParse(rawValue);
-      if (val != null && val > 20 && val < 2000) {
-        detectedCost = val;
-        break;
-      }
-    }
+    // Usunięto regex kosztu i jego przetwarzanie
 
     return {
-      'cost': detectedCost,
+      'cost': null, // Zawsze przekazujemy null, aby użytkownik musiał ręcznie wpisać koszt
       'liters': detectedLiters,
       'detectedType': detectedType,
     };
