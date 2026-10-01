@@ -30,7 +30,21 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Nadpisanie wersji SDK w build.gradle
+      - name: Usunięcie ewentualnych konfliktowych plików Kotlin Script
+        run: |
+          rm -f android/app/build.gradle.kts
+          rm -f android/build.gradle.kts
+
+      - name: Konfiguracja ProGuard dla ML Kit
+        run: |
+          cat << 'EOF' > android/app/proguard-rules.pro
+          -keep class com.google.mlkit.** { *; }
+          -keep class com.google.android.gms.** { *; }
+          -dontwarn com.google.mlkit.**
+          -dontwarn com.google.android.gms.**
+          EOF
+
+      - name: Nadpisanie konfiguracji android/app/build.gradle
         run: |
           cat << 'EOF' > android/app/build.gradle
           plugins {
@@ -41,12 +55,12 @@ jobs:
 
           android {
               namespace "com.example.fueltracker"
-              compileSdk 34
+              compileSdk 36
 
               defaultConfig {
                   applicationId "com.example.fueltracker"
                   minSdk 21
-                  targetSdk 34
+                  targetSdk 36
                   versionCode 1
                   versionName "1.0"
               }
@@ -56,6 +70,7 @@ jobs:
                       signingConfig signingConfigs.debug
                       minifyEnabled false
                       shrinkResources false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
                   }
               }
           }
@@ -64,6 +79,11 @@ jobs:
               source '../..'
           }
           EOF
+
+      - name: Wyłączenie R8 w gradle.properties
+        run: |
+          echo "android.enableR8=false" >> android/gradle.properties
+          echo "android.enableR8.fullMode=false" >> android/gradle.properties
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
