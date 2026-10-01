@@ -24,11 +24,11 @@ extension FuelTypeExtension on FuelType {
 }
 
 class FuelEntry {
-  final FuelType fuelType;  // Type: PB lub LPG
-  final double cost;        // PLN
-  final double liters;      // L
-  final double? odometer;   // Stan licznika całkowity (km)
-  final double? tripDistance; // Dystans odcinka (km)
+  final FuelType fuelType;
+  final double cost;
+  final double liters;
+  final double? odometer;
+  final double? tripDistance;
   final DateTime date;
 
   FuelEntry({
@@ -91,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  // Przefiltrowane ogólnie wpisy (po dacie)
   List<FuelEntry> get _filteredEntries {
     List<FuelEntry> list = List.from(_entries);
     if (_selectedDateRange != null) {
@@ -104,19 +103,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return list;
   }
 
-  // Wpisy dla wybranego paliwa
   List<FuelEntry> _entriesForType(FuelType type) {
     return _filteredEntries.where((e) => e.fuelType == type).toList();
   }
 
-  // Sumy i wyliczenia dla danego paliwa
   double _totalCostFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
 
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
-  // Wyliczanie średniego spalania l/100km dla konkretnego typu paliwa
   double? _calculatedAvgConsumptionFor(FuelType type) {
     final list = _entriesForType(type);
     if (list.isEmpty) return null;
@@ -249,7 +245,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Wybór paliwa
                 SegmentedButton<FuelType>(
                   segments: const [
                     ButtonSegment(value: FuelType.pb, label: Text('Benzyna PB'), icon: Icon(Icons.local_gas_station)),
@@ -344,7 +339,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- EKSPORT DO EXCELA (OSOBNE ARKU SZE DLA PB ORAZ LPG) ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) return;
 
@@ -355,45 +349,44 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final list = _entriesForType(type);
 
       sheetObject.appendRow([
-        TextCellValue('Data'),
-        TextCellValue('Dystans (km)'),
-        TextCellValue('Stan licznika (km)'),
-        TextCellValue('Koszt (PLN)'),
-        TextCellValue('Paliwo (L)'),
-        TextCellValue('Spalanie (L/100km)'),
+        'Data',
+        'Dystans (km)',
+        'Stan licznika (km)',
+        'Koszt (PLN)',
+        'Paliwo (L)',
+        'Spalanie (L/100km)',
       ]);
 
       for (var entry in list) {
         sheetObject.appendRow([
-          TextCellValue('${entry.date.day}.${entry.date.month}.${entry.date.year}'),
-          entry.tripDistance != null ? DoubleCellValue(entry.tripDistance!) : TextCellValue('-'),
-          entry.odometer != null ? DoubleCellValue(entry.odometer!) : TextCellValue('-'),
-          DoubleCellValue(entry.cost),
-          DoubleCellValue(entry.liters),
-          entry.singleConsumption != null ? DoubleCellValue(entry.singleConsumption!) : TextCellValue('-'),
+          '${entry.date.day}.${entry.date.month}.${entry.date.year}',
+          entry.tripDistance ?? '-',
+          entry.odometer ?? '-',
+          entry.cost,
+          entry.liters,
+          entry.singleConsumption ?? '-',
         ]);
       }
 
-      // Wiersz podsumowania
       double totalCost = _totalCostFor(type);
       double totalLiters = _totalLitersFor(type);
       double? avgCons = _calculatedAvgConsumptionFor(type);
 
       sheetObject.appendRow([]);
       sheetObject.appendRow([
-        TextCellValue('PODSUMOWANIE'),
-        TextCellValue(''),
-        TextCellValue(''),
-        DoubleCellValue(totalCost),
-        DoubleCellValue(totalLiters),
-        avgCons != null ? DoubleCellValue(avgCons) : TextCellValue('-'),
+        'PODSUMOWANIE',
+        '',
+        '',
+        totalCost,
+        totalLiters,
+        avgCons ?? '-',
       ]);
     }
 
     createSheetForType('Benzyna (PB)', FuelType.pb);
     createSheetForType('LPG', FuelType.lpg);
 
-    excel.delete('Sheet1'); // Usunięcie domyślnego pustego arkusza
+    excel.delete('Sheet1');
 
     final directory = await getTemporaryDirectory();
     final filePath = '${directory.path}/raport_paliwa_${DateTime.now().millisecondsSinceEpoch}.xlsx';
@@ -415,7 +408,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     return Column(
       children: [
-        // Karta Statystyk
         Container(
           padding: const EdgeInsets.all(20),
           margin: const EdgeInsets.all(16),
@@ -461,7 +453,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
 
-        // Lista Wpisów
         Expanded(
           child: list.isEmpty
               ? Center(child: Text('Brak wpisów dla ${type.label}.'))
