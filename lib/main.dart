@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:excel/excel.dart' hide Border;
+import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -24,11 +24,11 @@ extension FuelTypeExtension on FuelType {
 }
 
 class FuelEntry {
-  final FuelType fuelType;
-  final double cost;
-  final double liters;
-  final double? odometer;
-  final double? tripDistance;
+  final FuelType fuelType;  // Type: PB lub LPG
+  final double cost;        // PLN
+  final double liters;      // L
+  final double? odometer;   // Stan licznika całkowity (km)
+  final double? tripDistance; // Dystans odcinka (km)
   final DateTime date;
 
   FuelEntry({
@@ -56,7 +56,7 @@ class FuelTrackerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Licznik Paliwa (PB & LPG)',
+      title: 'Tanker App', // Zaktualizowano tytuł aplikacji
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
@@ -82,7 +82,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // ZMIANA 1: initialIndex ustawiony na 1, aby domyślną zakładką było LPG
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
   }
 
   @override
@@ -91,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
+  // Przefiltrowane ogólnie wpisy (po dacie)
   List<FuelEntry> get _filteredEntries {
     List<FuelEntry> list = List.from(_entries);
     if (_selectedDateRange != null) {
@@ -103,16 +105,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return list;
   }
 
+  // Wpisy dla wybranego paliwa
   List<FuelEntry> _entriesForType(FuelType type) {
     return _filteredEntries.where((e) => e.fuelType == type).toList();
   }
 
+  // Sumy i wyliczenia dla danego paliwa
   double _totalCostFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
 
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
+  // Wyliczanie średniego spalania l/100km dla konkretnego typu paliwa
   double? _calculatedAvgConsumptionFor(FuelType type) {
     final list = _entriesForType(type);
     if (list.isEmpty) return null;
@@ -245,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Wybór paliwa
                 SegmentedButton<FuelType>(
                   segments: const [
                     ButtonSegment(value: FuelType.pb, label: Text('Benzyna PB'), icon: Icon(Icons.local_gas_station)),
@@ -339,6 +345,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // --- EKSPORT DO EXCELA ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) return;
 
@@ -349,44 +356,45 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final list = _entriesForType(type);
 
       sheetObject.appendRow([
-        'Data',
-        'Dystans (km)',
-        'Stan licznika (km)',
-        'Koszt (PLN)',
-        'Paliwo (L)',
-        'Spalanie (L/100km)',
+        TextCellValue('Data'),
+        TextCellValue('Dystans (km)'),
+        TextCellValue('Stan licznika (km)'),
+        TextCellValue('Koszt (PLN)'),
+        TextCellValue('Paliwo (L)'),
+        TextCellValue('Spalanie (L/100km)'),
       ]);
 
       for (var entry in list) {
         sheetObject.appendRow([
-          '${entry.date.day}.${entry.date.month}.${entry.date.year}',
-          entry.tripDistance ?? '-',
-          entry.odometer ?? '-',
-          entry.cost,
-          entry.liters,
-          entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+          TextCellValue('${entry.date.day}.${entry.date.month}.${entry.date.year}'),
+          entry.tripDistance != null ? DoubleCellValue(entry.tripDistance!) : TextCellValue('-'),
+          entry.odometer != null ? DoubleCellValue(entry.odometer!) : TextCellValue('-'),
+          DoubleCellValue(entry.cost),
+          DoubleCellValue(entry.liters),
+          entry.singleConsumption != null ? DoubleCellValue(entry.singleConsumption!) : TextCellValue('-'),
         ]);
       }
 
+      // Wiersz podsumowania
       double totalCost = _totalCostFor(type);
       double totalLiters = _totalLitersFor(type);
       double? avgCons = _calculatedAvgConsumptionFor(type);
 
       sheetObject.appendRow([]);
       sheetObject.appendRow([
-        'PODSUMOWANIE',
-        '-',
-        '-',
-        double.parse(totalCost.toStringAsFixed(2)),
-        double.parse(totalLiters.toStringAsFixed(2)),
-        avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
+        TextCellValue('PODSUMOWANIE'),
+        TextCellValue(''),
+        TextCellValue(''),
+        DoubleCellValue(totalCost),
+        DoubleCellValue(totalLiters),
+        avgCons != null ? DoubleCellValue(avgCons) : TextCellValue('-'),
       ]);
     }
 
     createSheetForType('Benzyna (PB)', FuelType.pb);
     createSheetForType('LPG', FuelType.lpg);
 
-    excel.delete('Sheet1');
+    excel.delete('Sheet1'); // Usunięcie domyślnego pustego arkusza
 
     final directory = await getTemporaryDirectory();
     final filePath = '${directory.path}/raport_paliwa_${DateTime.now().millisecondsSinceEpoch}.xlsx';
@@ -408,6 +416,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     return Column(
       children: [
+        // Karta Statystyk
         Container(
           padding: const EdgeInsets.all(20),
           margin: const EdgeInsets.all(16),
@@ -453,6 +462,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
 
+        // Lista Wpisów
         Expanded(
           child: list.isEmpty
               ? Center(child: Text('Brak wpisów dla ${type.label}.'))
@@ -504,7 +514,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Spalanie PB & LPG'),
+        // ZMIANA 2: Nowy nagłówek z logo i nową nazwą
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/logo.png', // Logo aplikacji
+              height: 32,
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Tanker App',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.date_range),
