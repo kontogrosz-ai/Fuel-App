@@ -30,16 +30,17 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Wymuszenie SDK 36 dla wszystkich wtyczek
+      - name: Globalna konfiguracja Gradle (Init Script)
         run: |
-          cat << 'EOF' >> android/build.gradle
-
-          subprojects {
-              afterEvaluate { subproject ->
-                  if (subproject.hasProperty('android')) {
-                      subproject.android {
-                          compileSdkVersion 36
-                          buildToolsVersion "34.0.0"
+          mkdir -p ~/.gradle/init.d
+          cat << 'EOF' > ~/.gradle/init.d/flutter_override.gradle
+          gradle.allprojects { p ->
+              p.afterEvaluate {
+                  if (p.hasProperty('android')) {
+                      p.android.compileSdkVersion = 36
+                      p.android.buildToolsVersion = "34.0.0"
+                      if (p.plugins.hasPlugin('com.android.application')) {
+                          p.android.buildTypes.release.signingConfig = p.android.signingConfigs.debug
                       }
                   }
               }
@@ -49,32 +50,9 @@ jobs:
           echo "flutter.compileSdkVersion=36" >> android/local.properties
           echo "flutter.targetSdkVersion=36" >> android/local.properties
           echo "flutter.minSdkVersion=21" >> android/local.properties
+          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
-      - name: Bezpieczne dodanie podpisu debugowego dla wersji Release
-        run: |
-          python3 -c "
-          import os
-
-          gradle_file = 'android/app/build.gradle'
-          if not os.path.exists(gradle_file):
-              gradle_file = 'android/app/build.gradle.kts'
-
-          if os.path.exists(gradle_file):
-              with open(gradle_file, 'r') as f:
-                  content = f.read()
-
-              if 'build.gradle.kts' in gradle_file:
-                  if 'signingConfig' not in content:
-                      content = content.replace('release {', 'release {\n            signingConfig = signingConfigs.getByName(\"debug\")')
-              else:
-                  if 'signingConfig' not in content:
-                      content = content.replace('release {', 'release {\n            signingConfig signingConfigs.debug')
-
-              with open(gradle_file, 'w') as f:
-                  f.write(content)
-          "
-
-      - name: Konfiguracja ProGuard i wyłączenie ostrzeżeń SDK
+      - name: Konfiguracja ProGuard
         run: |
           cat << 'EOF' > android/app/proguard-rules.pro
           -keep class com.google.mlkit.** { *; }
@@ -82,8 +60,6 @@ jobs:
           -dontwarn com.google.mlkit.**
           -dontwarn com.google.android.gms.**
           EOF
-
-          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
@@ -96,5 +72,5 @@ jobs:
         with:
           name: app-release
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/*.apk
             build/app/outputs/apk/release/*.apk
