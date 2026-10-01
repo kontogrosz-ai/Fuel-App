@@ -25,6 +25,7 @@ extension FuelTypeExtension on FuelType {
 }
 
 class FuelEntry {
+  final String id;
   final FuelType fuelType;
   final double cost;
   final double liters;
@@ -33,13 +34,15 @@ class FuelEntry {
   final DateTime date;
 
   FuelEntry({
+    String? id,
     required this.fuelType,
     required this.cost,
     required this.liters,
     this.odometer,
     this.tripDistance,
     DateTime? date,
-  }) : date = date ?? DateTime.now();
+  })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        date = date ?? DateTime.now();
 
   double get pricePerLiter => liters > 0 ? cost / liters : 0.0;
 
@@ -51,6 +54,7 @@ class FuelEntry {
   }
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'fuelType': fuelType.name,
         'cost': cost,
         'liters': liters,
@@ -61,6 +65,7 @@ class FuelEntry {
 
   factory FuelEntry.fromJson(Map<String, dynamic> json) {
     return FuelEntry(
+      id: json['id'] as String?,
       fuelType: FuelType.values.firstWhere(
         (e) => e.name == json['fuelType'],
         orElse: () => FuelType.lpg,
@@ -144,8 +149,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _saveEntriesToFile() async {
     try {
       final file = await _getJsonFile();
-      final List<Map<String, dynamic>> jsonList =
-          _entries.map((e) => e.toJson()).toList();
+      final List<Map<String, dynamic>> jsonList = _entries.map((e) => e.toJson()).toList();
       await file.writeAsString(jsonEncode(jsonList));
     } catch (e) {
       debugPrint("Błąd zapisu danych: $e");
@@ -226,6 +230,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     setState(() => _selectedDateRange = null);
   }
 
+  void _deleteEntry(FuelEntry entry) {
+    final index = _entries.indexWhere((e) => e.id == entry.id);
+    if (index == -1) return;
+
+    setState(() {
+      _entries.removeAt(index);
+    });
+    _saveEntriesToFile();
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Usunięto wpis tankowania.'),
+        action: SnackBarAction(
+          label: 'COFNIJ',
+          onPressed: () {
+            setState(() {
+              _entries.insert(index, entry);
+            });
+            _saveEntriesToFile();
+          },
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _scanReceipt() async {
     final picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.camera);
@@ -253,17 +284,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
+    double? detectedCost;
     FuelType detectedType = FuelType.lpg;
     DateTime? detectedDate;
 
-    // 1. Detekcja typu paliwa
+    // 1. Rozpoznawanie typu paliwa
     if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
       detectedType = FuelType.lpg;
     } else if (text.toUpperCase().contains('PB') || text.toUpperCase().contains('BENZYNA') || text.toUpperCase().contains('95') || text.toUpperCase().contains('98')) {
       detectedType = FuelType.pb;
     }
 
-    // 2. Detekcja ilości litrów
+    // 2. Rozpoznawanie litrów
     final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
     final litersMatch = litersRegex.firstMatch(text);
     if (litersMatch != null) {
@@ -271,7 +303,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    // 3. Detekcja daty transakcji (YYYY-MM-DD lub DD.MM.YYYY lub YYYY/MM/DD itp.)
+    // 3. Rozpoznawanie całkowitego kosztu (szukamy SUMA, RAZEM, PLN, ZŁ)
+    final RegExp costRegex = RegExp(r'(?:suma|razem|kwota)\s*[:=]?\s*(\d+[\.,]\d{2})', caseSensitive: false);
+    final costMatch = costRegex.firstMatch(text);
+    if (costMatch != null) {
+      String rawCost = costMatch.group(1)!.replaceAll(',', '.');
+      detectedCost = double.tryParse(rawCost);
+    } else {
+      // Jeśli nie ma słowa SUMA, szukamy po prostu formatu "123.45 PLN"
+      final RegExp plnRegex = RegExp(r'(\d+[\.,]\d{2})\s*(?:pln|zł)', caseSensitive: false);
+      final plnMatch = plnRegex.firstMatch(text);
+      if (plnMatch != null) {
+        String rawCost = plnMatch.group(1)!.replaceAll(',', '.');
+        detectedCost = double.tryParse(rawCost);
+      }
+    }
+
+    // 4. Rozpoznawanie daty
     final regYMD = RegExp(r'\b(20\d{2})[-./](0[1-9]|1[0-2])[-./](0[1-9]|[12]\d|3[01])\b');
     final matchYMD = regYMD.firstMatch(text);
 
@@ -292,7 +340,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     return {
-      'cost': null,
+      'cost': detectedCost,
       'liters': detectedLiters,
       'detectedType': detectedType,
       'date': detectedDate,
@@ -300,6 +348,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _showConfirmationDialog(double? initialCost, double? initialLiters, FuelType? initialType, DateTime? initialDate) {
+    // Pola tekstowe inicjalizowane wartościami z OCR, użytkownik może je ręcznie zedytować
     final costController = TextEditingController(text: initialCost?.toStringAsFixed(2) ?? '');
     final litersController = TextEditingController(text: initialLiters?.toStringAsFixed(2) ?? '');
     
@@ -314,16 +363,39 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     showDialog(
       context: context,
+      barrierDismissible: false, // Wymusza podjęcie akcji (Anuluj / Zapisz)
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Dane tankowania'),
+          title: const Text('Zweryfikuj dane'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Żółty banner informacyjny
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 SegmentedButton<FuelType>(
                   segments: const [
-                    ButtonSegment(value: FuelType.pb, label: Text('Benzyna PB'), icon: Icon(Icons.local_gas_station)),
+                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
                     ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
                   ],
                   selected: {selectedType},
@@ -333,7 +405,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 12),
                 
-                // Przycisk wyboru/potwierdzenia daty
                 OutlinedButton.icon(
                   onPressed: () async {
                     final pickedDate = await showDatePicker(
@@ -354,17 +425,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 TextField(
                   controller: costController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
+                  decoration: const InputDecoration(labelText: 'Całkowity koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: litersController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Paliwo (Litry)*', prefixIcon: Icon(Icons.opacity)),
+                  decoration: const InputDecoration(labelText: 'Zatankowane litry (L)*', prefixIcon: Icon(Icons.opacity)),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                const Divider(),
                 const Text(
-                  'Wypełnij jedno z poniższych pól (drugie wyliczy się automatycznie):',
+                  'Podaj jedno z poniższych, aby liczyć spalanie:',
                   style: TextStyle(fontSize: 11, color: Colors.blueGrey),
                 ),
                 const SizedBox(height: 6),
@@ -391,11 +463,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Anuluj')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
+            ),
             ElevatedButton(
               onPressed: () {
+                // Walidacja poprawności danych podanych w polach
                 double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
                 double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
+
+                if (cost == null || liters == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Uzupełnij poprawnie Koszt i Litry!'))
+                  );
+                  return; // Przerywamy jeśli obowiązkowe pola są błędne
+                }
 
                 double? odo = odometerController.text.trim().isNotEmpty
                     ? double.tryParse(odometerController.text.replaceAll(',', '.'))
@@ -413,22 +496,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   trip = odo - lastOdometer;
                 }
 
-                if (cost != null && liters != null) {
-                  setState(() {
-                    _entries.add(FuelEntry(
-                      fuelType: selectedType,
-                      cost: cost,
-                      liters: liters,
-                      odometer: odo,
-                      tripDistance: trip,
-                      date: selectedDate,
-                    ));
-                  });
-                  _saveEntriesToFile();
-                }
+                setState(() {
+                  _entries.add(FuelEntry(
+                    fuelType: selectedType,
+                    cost: cost,
+                    liters: liters,
+                    odometer: odo,
+                    tripDistance: trip,
+                    date: selectedDate,
+                  ));
+                });
+                _saveEntriesToFile();
                 Navigator.pop(ctx);
               },
-              child: const Text('Zapisz'),
+              child: const Text('Zatwierdź'),
             ),
           ],
         ),
@@ -570,24 +651,37 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       detailsText = 'Brak danych przebiegu';
                     }
 
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: color.shade100,
-                        child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color.shade900),
+                    return Dismissible(
+                      key: ValueKey(entry.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        color: Colors.red.shade400,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: const Icon(Icons.delete, color: Colors.white),
                       ),
-                      title: Text('${entry.liters.toStringAsFixed(2)} L — ${entry.cost.toStringAsFixed(2)} zł'),
-                      subtitle: Text(detailsText),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text('${entry.date.day}.${entry.date.month}.${entry.date.year}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          if (singleCons != null)
-                            Text(
-                              '${singleCons.toStringAsFixed(1)} l/100km',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color.shade900),
-                            ),
-                        ],
+                      onDismissed: (direction) {
+                        _deleteEntry(entry);
+                      },
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: color.shade100,
+                          child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color.shade900),
+                        ),
+                        title: Text('${entry.liters.toStringAsFixed(2)} L — ${entry.cost.toStringAsFixed(2)} zł'),
+                        subtitle: Text(detailsText),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('${entry.date.day}.${entry.date.month}.${entry.date.year}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            if (singleCons != null)
+                              Text(
+                                '${singleCons.toStringAsFixed(1)} l/100km',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color.shade900),
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
