@@ -1,76 +1,908 @@
-name: Build Android APK
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:excel/excel.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
+void main() {
+  runApp(const FuelTrackerApp());
+}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+enum FuelType { pb, lpg }
 
-    steps:
-      - name: Checkout kodu
-        uses: actions/checkout@v4
+extension FuelTypeExtension on FuelType {
+  String get label {
+    switch (this) {
+      case FuelType.pb:
+        return 'Benzyna (PB)';
+      case FuelType.lpg:
+        return 'LPG';
+    }
+  }
+}
 
-      - name: Instalacja Javy (Temurin JDK 17)
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+class FuelEntry {
+  final String id;
+  final FuelType fuelType;
+  final double cost;
+  final double liters;
+  final double? odometer;
+  final double? tripDistance;
+  final DateTime date;
 
-      - name: Instalacja Fluttera
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+  FuelEntry({
+    String? id,
+    required this.fuelType,
+    required this.cost,
+    required this.liters,
+    this.odometer,
+    this.tripDistance,
+    DateTime? date,
+  })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        date = date ?? DateTime.now();
 
-      - name: Generowanie czystej struktury Android
-        run: |
-          rm -rf android
-          flutter create . --platforms=android --org com.example.fueltracker
+  double get pricePerLiter => liters > 0 ? cost / liters : 0.0;
 
-      - name: Globalna konfiguracja Gradle (Init Script)
-        run: |
-          mkdir -p ~/.gradle/init.d
-          cat << 'EOF' > ~/.gradle/init.d/flutter_override.gradle
-          gradle.allprojects { p ->
-              p.afterEvaluate {
-                  if (p.hasProperty('android')) {
-                      p.android.compileSdkVersion = 36
-                      p.android.buildToolsVersion = "34.0.0"
-                      if (p.plugins.hasPlugin('com.android.application')) {
-                          p.android.buildTypes.release.signingConfig = p.android.signingConfigs.debug
-                      }
-                  }
-              }
+  double? get singleConsumption {
+    if (tripDistance != null && tripDistance! > 0) {
+      return (liters / tripDistance!) * 100;
+    }
+    return null;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'fuelType': fuelType.name,
+        'cost': cost,
+        'liters': liters,
+        'odometer': odometer,
+        'tripDistance': tripDistance,
+        'date': date.toIso8601String(),
+      };
+
+  factory FuelEntry.fromJson(Map<String, dynamic> json) => FuelEntry(
+        id: json['id'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        fuelType: FuelType.values.byName(json['fuelType']),
+        cost: (json['cost'] as num).toDouble(),
+        liters: (json['liters'] as num).toDouble(),
+        odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
+        tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
+        date: DateTime.parse(json['date']),
+      );
+}
+
+class FuelTrackerApp extends StatelessWidget {
+  const FuelTrackerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Tanker App',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        useMaterial3: true,
+      ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+  final List<FuelEntry> _entries = [];
+  bool _isScanning = false;
+  DateTimeRange? _selectedDateRange;
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 1); // LPG domyślnie
+    _loadEntries();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  // Pobieranie plików lokalnych (Plik główny & Auto-backup)
+  Future<File> _getFile(String filename) async {
+    final directory = await getApplicationDocumentsDirectory();
+    return File('${directory.path}/$filename');
+  }
+
+  // Zapis danych + AUTO-BACKUP do "Dane_aplikacji.json" (Punkt 12)
+  Future<void> _saveEntries() async {
+    try {
+      final jsonList = _entries.map((e) => e.toJson()).toList();
+      final jsonString = jsonEncode(jsonList);
+
+      // Zapis do pliku roboczego
+      final mainFile = await _getFile('fuel_entries.json');
+      await mainFile.writeAsString(jsonString);
+
+      // AUTO-BACKUP do "Dane_aplikacji.json"
+      final backupFile = await _getFile('Dane_aplikacji.json');
+      await backupFile.writeAsString(jsonString);
+    } catch (e) {
+      debugPrint('Błąd zapisu danych: $e');
+    }
+  }
+
+  // Odczyt danych przy starcie
+  Future<void> _loadEntries() async {
+    try {
+      final file = await _getFile('fuel_entries.json');
+      if (await file.exists()) {
+        final contents = await file.readAsString();
+        final List<dynamic> jsonList = jsonDecode(contents);
+        setState(() {
+          _entries.clear();
+          _entries.addAll(jsonList.map((e) => FuelEntry.fromJson(e)).toList());
+        });
+      }
+    } catch (e) {
+      debugPrint('Błąd odczytu danych: $e');
+    }
+  }
+
+  // IMPORT danych z "Dane_aplikacji.json" (Punkt 11)
+  Future<void> _importFromBackup() async {
+    try {
+      final backupFile = await _getFile('Dane_aplikacji.json');
+      if (await backupFile.exists()) {
+        final contents = await backupFile.readAsString();
+        final List<dynamic> jsonList = jsonDecode(contents);
+        final importedEntries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
+
+        int newAddedCount = 0;
+        setState(() {
+          for (var imported in importedEntries) {
+            if (!_entries.any((e) => e.id == imported.id)) {
+              _entries.add(imported);
+              newAddedCount++;
+            }
           }
-          EOF
+        });
 
-          echo "flutter.compileSdkVersion=36" >> android/local.properties
-          echo "flutter.targetSdkVersion=36" >> android/local.properties
-          echo "flutter.minSdkVersion=21" >> android/local.properties
-          echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+        if (newAddedCount > 0) {
+          await _saveEntries();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Pomyślnie zaimportowano $newAddedCount nowych wpisów z "Dane_aplikacji.json".')),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Brak nowych wpisów do zaimportowania (wszystkie istnieją).')),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nie znaleziono pliku "Dane_aplikacji.json".')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Błąd podczas importu danych: $e')),
+        );
+      }
+    }
+  }
 
-      - name: Konfiguracja ProGuard
-        run: |
-          cat << 'EOF' > android/app/proguard-rules.pro
-          -keep class com.google.mlkit.** { *; }
-          -keep class com.google.android.gms.** { *; }
-          -dontwarn com.google.mlkit.**
-          -dontwarn com.google.android.gms.**
-          EOF
+  List<FuelEntry> get _filteredEntries {
+    List<FuelEntry> list = List.from(_entries);
+    if (_selectedDateRange != null) {
+      list = list.where((e) {
+        return e.date.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
+               e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+      }).toList();
+    }
+    list.sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
 
-      - name: Pobranie zależności Fluttera
-        run: flutter pub get
+  List<FuelEntry> _entriesForType(FuelType type) {
+    return _filteredEntries.where((e) => e.fuelType == type).toList();
+  }
 
-      - name: Budowanie pliku APK (Release)
-        run: flutter build apk --release --no-tree-shake-icons
+  double _totalCostFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
 
-      - name: Udostępnienie pliku APK do pobrania
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: |
-            build/app/outputs/flutter-apk/*.apk
-            build/app/outputs/apk/release/*.apk
+  double _totalLitersFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
+
+  double? _calculatedAvgConsumptionFor(FuelType type) {
+    final list = _entriesForType(type);
+    if (list.isEmpty) return null;
+
+    double totalDistance = 0.0;
+    double totalLitersUsed = 0.0;
+
+    for (var entry in list) {
+      if (entry.tripDistance != null && entry.tripDistance! > 0) {
+        totalDistance += entry.tripDistance!;
+        totalLitersUsed += entry.liters;
+      }
+    }
+
+    if (totalDistance > 0 && totalLitersUsed > 0) {
+      return (totalLitersUsed / totalDistance) * 100;
+    }
+    return null;
+  }
+
+  // Wyliczanie miesięcznego spalania dla Wykresu (Punkt 10)
+  Map<String, double> _getMonthlyConsumption(FuelType type) {
+    final Map<String, List<FuelEntry>> grouped = {};
+    final list = _entriesForType(type);
+
+    for (var entry in list) {
+      final key = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
+      grouped.putIfAbsent(key, () => []).add(entry);
+    }
+
+    final Map<String, double> monthlyAvg = {};
+    final sortedKeys = grouped.keys.toList()..sort();
+
+    for (var key in sortedKeys) {
+      final entries = grouped[key]!;
+      double totalDist = 0;
+      double totalLiters = 0;
+
+      for (var e in entries) {
+        if (e.tripDistance != null && e.tripDistance! > 0) {
+          totalDist += e.tripDistance!;
+          totalLiters += e.liters;
+        }
+      }
+
+      if (totalDist > 0) {
+        monthlyAvg[key] = (totalLiters / totalDist) * 100;
+      }
+    }
+
+    return monthlyAvg;
+  }
+
+  Future<void> _selectDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: _selectedDateRange,
+    );
+    if (picked != null) {
+      setState(() => _selectedDateRange = picked);
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() => _selectedDateRange = null);
+  }
+
+  Future<void> _scanReceipt() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.camera);
+
+    if (image == null) return;
+
+    setState(() => _isScanning = true);
+
+    final inputImage = InputImage.fromFilePath(image.path);
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+
+    final parsedData = _extractFuelData(recognizedText.text);
+
+    await textRecognizer.close();
+    setState(() => _isScanning = false);
+
+    _showEntryDialog(
+      initialLiters: parsedData['liters'],
+      initialDate: parsedData['date'],
+      initialType: parsedData['detectedType'],
+    );
+  }
+
+  Map<String, dynamic> _extractFuelData(String text) {
+    double? detectedLiters;
+    DateTime? detectedDate;
+    FuelType detectedType = FuelType.pb;
+
+    if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
+      detectedType = FuelType.lpg;
+    }
+
+    final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
+    final litersMatch = litersRegex.firstMatch(text);
+    if (litersMatch != null) {
+      String rawLiters = litersMatch.group(1)!.replaceAll(',', '.');
+      detectedLiters = double.tryParse(rawLiters);
+    }
+
+    final RegExp dateRegex = RegExp(r'\b(\d{2,4})[.\/-](\d{1,2})[.\/-](\d{2,4})\b');
+    final matches = dateRegex.allMatches(text);
+
+    for (final match in matches) {
+      int? p1 = int.tryParse(match.group(1)!);
+      int? p2 = int.tryParse(match.group(2)!);
+      int? p3 = int.tryParse(match.group(3)!);
+
+      if (p1 != null && p2 != null && p3 != null) {
+        int year, month, day;
+        if (p1 > 1000) {
+          year = p1; month = p2; day = p3;
+        } else if (p3 > 1000) {
+          day = p1; month = p2; year = p3;
+        } else {
+          continue;
+        }
+
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2000 && year <= 2100) {
+          detectedDate = DateTime(year, month, day);
+          break;
+        }
+      }
+    }
+
+    return {
+      'liters': detectedLiters,
+      'date': detectedDate,
+      'detectedType': detectedType,
+    };
+  }
+
+  void _showEntryDialog({
+    FuelEntry? existingEntry,
+    double? initialLiters,
+    DateTime? initialDate,
+    FuelType? initialType,
+  }) {
+    final isEditing = existingEntry != null;
+
+    final costController = TextEditingController(
+      text: existingEntry != null ? existingEntry.cost.toStringAsFixed(2) : '',
+    );
+    final litersController = TextEditingController(
+      text: existingEntry != null
+          ? existingEntry.liters.toStringAsFixed(2)
+          : (initialLiters?.toStringAsFixed(2) ?? ''),
+    );
+    final odometerController = TextEditingController(
+      text: existingEntry?.odometer?.toStringAsFixed(0) ?? '',
+    );
+    final tripController = TextEditingController(
+      text: existingEntry?.tripDistance?.toStringAsFixed(1) ?? '',
+    );
+
+    FuelType selectedType = existingEntry?.fuelType ?? initialType ?? FuelType.pb;
+    DateTime selectedDate = existingEntry?.date ?? initialDate ?? DateTime.now();
+
+    final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
+    double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.first.odometer : null;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(isEditing ? 'Edycja wpisu' : 'Dane tankowania'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.calendar_today, color: Colors.teal),
+                  title: Text(
+                    'Data: ${selectedDate.day.toString().padLeft(2, '0')}.${selectedDate.month.toString().padLeft(2, '0')}.${selectedDate.year}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  trailing: TextButton(
+                    child: const Text('Zmień'),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SegmentedButton<FuelType>(
+                  segments: const [
+                    ButtonSegment(value: FuelType.pb, label: Text('Benzyna PB'), icon: Icon(Icons.local_gas_station)),
+                    ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+                  ],
+                  selected: {selectedType},
+                  onSelectionChanged: (Set<FuelType> newSelection) {
+                    setDialogState(() => selectedType = newSelection.first);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: costController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: litersController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Paliwo (Litry)*', prefixIcon: Icon(Icons.opacity)),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tripController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Dystans odcinka (km)',
+                    prefixIcon: Icon(Icons.add_road),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: odometerController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Stan licznika (km)',
+                    hintText: lastOdometer != null ? 'Ostatnio: ${lastOdometer.toStringAsFixed(0)} km' : 'np. 150000 km',
+                    prefixIcon: const Icon(Icons.speed),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Anuluj')),
+            ElevatedButton(
+              onPressed: () {
+                double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
+                double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
+                double? odo = odometerController.text.trim().isNotEmpty ? double.tryParse(odometerController.text.replaceAll(',', '.')) : null;
+                double? trip = tripController.text.trim().isNotEmpty ? double.tryParse(tripController.text.replaceAll(',', '.')) : null;
+
+                if (cost != null && liters != null) {
+                  setState(() {
+                    if (isEditing) {
+                      final index = _entries.indexWhere((e) => e.id == existingEntry.id);
+                      if (index != -1) {
+                        _entries[index] = FuelEntry(
+                          id: existingEntry.id,
+                          fuelType: selectedType,
+                          cost: cost,
+                          liters: liters,
+                          odometer: odo,
+                          tripDistance: trip,
+                          date: selectedDate,
+                        );
+                      }
+                    } else {
+                      _entries.add(FuelEntry(
+                        fuelType: selectedType,
+                        cost: cost,
+                        liters: liters,
+                        odometer: odo,
+                        tripDistance: trip,
+                        date: selectedDate,
+                      ));
+                    }
+                  });
+                  _saveEntries(); // Automatyczny zapis i auto-backup
+                }
+                Navigator.pop(ctx);
+              },
+              child: const Text('Zapisz'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _deleteEntry(FuelEntry entry) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Usuń wpis'),
+        content: Text('Czy na pewno chcesz usunąć wpis z dnia ${entry.date.day}.${entry.date.month}.${entry.date.year}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Anuluj')),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _entries.removeWhere((e) => e.id == entry.id);
+              });
+              _saveEntries(); // Aktualizacja bazy oraz auto-backupu
+              Navigator.pop(ctx);
+            },
+            child: const Text('Usuń', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportToExcel() async {
+    if (_filteredEntries.isEmpty) return;
+
+    var excel = Excel.createExcel();
+
+    void createSheetForType(String sheetName, FuelType type) {
+      Sheet sheetObject = excel[sheetName];
+      final list = _entriesForType(type);
+
+      sheetObject.appendRow([
+        TextCellValue('Data'),
+        TextCellValue('Dystans (km)'),
+        TextCellValue('Stan licznika (km)'),
+        TextCellValue('Koszt (PLN)'),
+        TextCellValue('Paliwo (L)'),
+        TextCellValue('Spalanie (L/100km)'),
+      ]);
+
+      for (var entry in list) {
+        sheetObject.appendRow([
+          TextCellValue('${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}'),
+          entry.tripDistance != null ? DoubleCellValue(entry.tripDistance!) : TextCellValue('-'),
+          entry.odometer != null ? DoubleCellValue(entry.odometer!) : TextCellValue('-'),
+          DoubleCellValue(entry.cost),
+          DoubleCellValue(entry.liters),
+          entry.singleConsumption != null ? DoubleCellValue(entry.singleConsumption!) : TextCellValue('-'),
+        ]);
+      }
+    }
+
+    createSheetForType('Benzyna (PB)', FuelType.pb);
+    createSheetForType('LPG', FuelType.lpg);
+    excel.delete('Sheet1');
+
+    final directory = await getTemporaryDirectory();
+    final filePath = '${directory.path}/raport_paliwa_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+    final fileBytes = excel.save();
+
+    if (fileBytes != null) {
+      File(filePath)..createSync(recursive: true)..writeAsBytesSync(fileBytes);
+      await Share.shareXFiles([XFile(filePath)], text: 'Rozdzielony raport paliwa PB i LPG');
+    }
+  }
+
+  // WIZUALIZACJA WYKRESU SPALANIA (Punkt 10)
+  Widget _buildConsumptionChart(FuelType type, Color primaryColor) {
+    final monthlyData = _getMonthlyConsumption(type);
+
+    if (monthlyData.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final maxVal = monthlyData.values.reduce((a, b) => a > b ? a : b);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bar_chart, color: primaryColor),
+              const SizedBox(width: 8),
+              const Text(
+                'Miesięczne średnie spalanie (l/100km)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 120,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: monthlyData.entries.map((entry) {
+                final ratio = maxVal > 0 ? (entry.value / maxVal) : 0.0;
+                final monthText = entry.key.substring(5); // pobranie MM z YYYY-MM
+
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      entry.value.toStringAsFixed(1),
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: primaryColor),
+                    ),
+                    const SizedBox(height: 4),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: 20,
+                      height: 70 * ratio,
+                      decoration: BoxDecoration(
+                        color: primaryColor.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      monthText,
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFuelTab(FuelType type) {
+    final list = _entriesForType(type);
+    final totalCost = _totalCostFor(type);
+    final totalLiters = _totalLitersFor(type);
+    final avgConsumption = _calculatedAvgConsumptionFor(type);
+
+    final color = type == FuelType.pb ? Colors.teal : Colors.orange;
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          margin: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: color.shade50,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.shade200),
+          ),
+          child: Column(
+            children: [
+              Text('ŚREDNIE SPALANIE (${type.label.toUpperCase()})',
+                  style: TextStyle(fontSize: 12, color: color.shade900, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(
+                avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} l/100km' : '--',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: avgConsumption != null ? color.shade900 : Colors.grey,
+                ),
+              ),
+              const Divider(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      const Text('Koszt łączny', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('${totalCost.toStringAsFixed(2)} zł', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Column(
+                    children: [
+                      const Text('Paliwo łącznie', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('${totalLiters.toStringAsFixed(2)} L', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
+
+        // WYKRES SPALANIA MIESIĘCZNEGO
+        _buildConsumptionChart(type, color.shade800),
+
+        Expanded(
+          child: list.isEmpty
+              ? Center(child: Text('Brak wpisów dla ${type.label}.'))
+              : ListView.builder(
+                  itemCount: list.length,
+                  itemBuilder: (ctx, index) {
+                    final entry = list[index];
+                    final singleCons = entry.singleConsumption;
+
+                    String detailsText = '';
+                    if (entry.tripDistance != null) {
+                      detailsText += 'Trasa: ${entry.tripDistance!.toStringAsFixed(1)} km  ';
+                    }
+                    if (entry.odometer != null) {
+                      detailsText += '• Licznik: ${entry.odometer!.toStringAsFixed(0)} km';
+                    }
+
+                    return Dismissible(
+                      key: Key(entry.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        color: Colors.red,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (direction) async {
+                        _deleteEntry(entry);
+                        return false;
+                      },
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: color.shade100,
+                          child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color.shade900),
+                        ),
+                        title: Text('${entry.liters.toStringAsFixed(2)} L — ${entry.cost.toStringAsFixed(2)} zł'),
+                        subtitle: Text(detailsText.isEmpty ? 'Brak danych przebiegu' : detailsText),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                                if (singleCons != null)
+                                  Text(
+                                    '${singleCons.toStringAsFixed(1)} l/100km',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color.shade900),
+                                  ),
+                              ],
+                            ),
+                            PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  _showEntryDialog(existingEntry: entry);
+                                } else if (value == 'delete') {
+                                  _deleteEntry(entry);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(children: [Icon(Icons.edit, size: 20), SizedBox(width: 8), Text('Edytuj')]),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('Usuń', style: TextStyle(color: Colors.red))]),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Tanker App', style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Dodaj ręcznie',
+            onPressed: () => _showEntryDialog(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.date_range),
+            tooltip: 'Filtruj okres',
+            onPressed: _selectDateRange,
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'export') {
+                _exportToExcel();
+              } else if (value == 'import') {
+                _importFromBackup();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'import',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_upload, color: Colors.teal),
+                    SizedBox(width: 8),
+                    Text('Importuj z JSON'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_download, color: Colors.teal),
+                    SizedBox(width: 8),
+                    Text('Eksportuj do Excela'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.local_gas_station), text: 'Benzyna (PB)'),
+            Tab(icon: Icon(Icons.propane_tank), text: 'LPG'),
+          ],
+        ),
+      ),
+      body: _isScanning
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                if (_selectedDateRange != null)
+                  Container(
+                    color: Colors.amber.shade100,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Okres: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        InkWell(
+                          onTap: _clearDateFilter,
+                          child: const Icon(Icons.close, size: 20),
+                        )
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildFuelTab(FuelType.pb),
+                      _buildFuelTab(FuelType.lpg),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _scanReceipt,
+        icon: const Icon(Icons.camera_alt),
+        label: const Text('Zeskanuj paragon'),
+      ),
+    );
+  }
+}
