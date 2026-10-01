@@ -25,24 +25,21 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generowanie natywnej struktury Android V2
+      - name: Generowanie czystej struktury Android
         run: |
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Wymuszenie SDK 36 na poziomie Gradle
+      - name: Wymuszenie SDK 36 dla wszystkich wtyczek w android/build.gradle
         run: |
           cat << 'EOF' >> android/build.gradle
 
           subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty('android')) {
-                      project.android {
+              afterEvaluate { subproject ->
+                  if (subproject.hasProperty('android')) {
+                      subproject.android {
                           compileSdkVersion 36
                           buildToolsVersion "34.0.0"
-                          defaultConfig {
-                              targetSdkVersion 36
-                          }
                       }
                   }
               }
@@ -53,20 +50,7 @@ jobs:
           echo "flutter.targetSdkVersion=36" >> android/local.properties
           echo "flutter.minSdkVersion=21" >> android/local.properties
 
-      - name: Konfiguracja podpisu debugowego dla wersji Release
-        run: |
-          cat << 'EOF' >> android/app/build.gradle
-
-          android {
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.debug
-                  }
-              }
-          }
-          EOF
-
-      - name: Konfiguracja ProGuard i wyłączenie blokad SDK
+      - name: Konfiguracja ProGuard i wyłączenie ostrzeżeń SDK
         run: |
           cat << 'EOF' > android/app/proguard-rules.pro
           -keep class com.google.mlkit.** { *; }
