@@ -122,17 +122,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return File('${directory.path}/$filename');
   }
 
-  // Zapis danych + AUTO-BACKUP do "Dane_aplikacji.json" (Punkt 12)
+  // Zapis danych + AUTO-BACKUP do "Dane_aplikacji.json"
   Future<void> _saveEntries() async {
     try {
       final jsonList = _entries.map((e) => e.toJson()).toList();
       final jsonString = jsonEncode(jsonList);
 
-      // Zapis do pliku roboczego
       final mainFile = await _getFile('fuel_entries.json');
       await mainFile.writeAsString(jsonString);
 
-      // AUTO-BACKUP do "Dane_aplikacji.json"
       final backupFile = await _getFile('Dane_aplikacji.json');
       await backupFile.writeAsString(jsonString);
     } catch (e) {
@@ -157,7 +155,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // IMPORT danych z "Dane_aplikacji.json" (Punkt 11)
+  // IMPORT danych z "Dane_aplikacji.json"
   Future<void> _importFromBackup() async {
     try {
       final backupFile = await _getFile('Dane_aplikacji.json');
@@ -209,9 +207,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> get _filteredEntries {
     List<FuelEntry> list = List.from(_entries);
     if (_selectedDateRange != null) {
+      final start = DateTime(_selectedDateRange!.start.year, _selectedDateRange!.start.month, _selectedDateRange!.start.day, 0, 0, 0);
+      final end = DateTime(_selectedDateRange!.end.year, _selectedDateRange!.end.month, _selectedDateRange!.end.day, 23, 59, 59);
+
       list = list.where((e) {
-        return e.date.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
-               e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+        return (e.date.isAfter(start) || e.date.isAtSameMomentAs(start)) &&
+            (e.date.isBefore(end) || e.date.isAtSameMomentAs(end));
       }).toList();
     }
     list.sort((a, b) => b.date.compareTo(a.date));
@@ -248,7 +249,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return null;
   }
 
-  // Wyliczanie miesięcznego spalania dla Wykresu (Punkt 10)
   Map<String, double> _getMonthlyConsumption(FuelType type) {
     final Map<String, List<FuelEntry>> grouped = {};
     final list = _entriesForType(type);
@@ -305,20 +305,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     setState(() => _isScanning = true);
 
-    final inputImage = InputImage.fromFilePath(image.path);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
+    try {
+      final inputImage = InputImage.fromFilePath(image.path);
+      final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
 
-    final parsedData = _extractFuelData(recognizedText.text);
+      final parsedData = _extractFuelData(recognizedText.text);
 
-    await textRecognizer.close();
-    setState(() => _isScanning = false);
+      await textRecognizer.close();
 
-    _showEntryDialog(
-      initialLiters: parsedData['liters'],
-      initialDate: parsedData['date'],
-      initialType: parsedData['detectedType'],
-    );
+      if (!mounted) return;
+      setState(() => _isScanning = false);
+
+      _showEntryDialog(
+        initialLiters: parsedData['liters'],
+        initialDate: parsedData['date'],
+        initialType: parsedData['detectedType'],
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isScanning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Błąd odczytu paragonu: $e')),
+        );
+      }
+    }
   }
 
   Map<String, dynamic> _extractFuelData(String text) {
@@ -395,7 +406,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     FuelType selectedType = existingEntry?.fuelType ?? initialType ?? FuelType.pb;
     DateTime selectedDate = existingEntry?.date ?? initialDate ?? DateTime.now();
 
-    final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
+    // Pobranie ostatniego stanu licznika posortowanego po dacie
+    final entriesWithOdo = _entries.where((e) => e.odometer != null).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
     double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.first.odometer : null;
 
     showDialog(
@@ -509,7 +522,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ));
                     }
                   });
-                  _saveEntries(); // Automatyczny zapis i auto-backup
+                  _saveEntries();
                 }
                 Navigator.pop(ctx);
               },
@@ -534,7 +547,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               setState(() {
                 _entries.removeWhere((e) => e.id == entry.id);
               });
-              _saveEntries(); // Aktualizacja bazy oraz auto-backupu
+              _saveEntries();
               Navigator.pop(ctx);
             },
             child: const Text('Usuń', style: TextStyle(color: Colors.red)),
@@ -588,7 +601,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // WIZUALIZACJA WYKRESU SPALANIA (Punkt 10)
   Widget _buildConsumptionChart(FuelType type, Color primaryColor) {
     final monthlyData = _getMonthlyConsumption(type);
 
@@ -633,7 +645,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.end,
               children: monthlyData.entries.map((entry) {
                 final ratio = maxVal > 0 ? (entry.value / maxVal) : 0.0;
-                final monthText = entry.key.substring(5); // pobranie MM z YYYY-MM
+                final monthText = entry.key.substring(5);
 
                 return Column(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -719,10 +731,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ],
           ),
         ),
-
-        // WYKRES SPALANIA MIESIĘCZNEGO
         _buildConsumptionChart(type, color.shade800),
-
         Expanded(
           child: list.isEmpty
               ? Center(child: Text('Brak wpisów dla ${type.label}.'))
@@ -815,6 +824,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         title: const Text('Tanker App', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
+          if (_selectedDateRange != null)
+            IconButton(
+              icon: const Icon(Icons.filter_alt_off),
+              tooltip: 'Wyczyść filtr dat',
+              onPressed: _clearDateFilter,
+            ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Dodaj ręcznie',
@@ -865,43 +880,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-      body: _isScanning
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_selectedDateRange != null)
-                  Container(
-                    color: Colors.amber.shade100,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Okres: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        InkWell(
-                          onTap: _clearDateFilter,
-                          child: const Icon(Icons.close, size: 20),
-                        )
-                      ],
-                    ),
-                  ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildFuelTab(FuelType.pb),
-                      _buildFuelTab(FuelType.lpg),
-                    ],
-                  ),
-                ),
-              ],
+      body: Stack(
+        children: [
+          TabBarView(
+            controller: _tabController,
+            children: [
+              _buildFuelTab(FuelType.pb),
+              _buildFuelTab(FuelType.lpg),
+            ],
+          ),
+          if (_isScanning)
+            Container(
+              color: Colors.black45,
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
             ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _scanReceipt,
         icon: const Icon(Icons.camera_alt),
-        label: const Text('Zeskanuj paragon'),
+        label: const Text('Skanuj paragon'),
       ),
     );
   }
