@@ -30,14 +30,31 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Globalne wymuszenie wersji SDK we Flutterze (local.properties)
+      - name: Brutalne wymuszenie SDK na poziomie Gradle
         run: |
+          # Dopisujemy na sam koniec pliku android/build.gradle regułę,
+          # która nadpisze konfigurację każdej wtyczki.
+          cat << 'EOF' >> android/build.gradle
+
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          compileSdkVersion 36
+                          buildToolsVersion "34.0.0"
+                          defaultConfig {
+                              targetSdkVersion 36
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # Ustawienia dla samego projektu
           echo "flutter.compileSdkVersion=36" >> android/local.properties
           echo "flutter.targetSdkVersion=36" >> android/local.properties
           echo "flutter.minSdkVersion=21" >> android/local.properties
-          
-          # Plik local.properties nadpisze domyślne wartości SDK (31) 
-          # dla wszystkich wtyczek podczas kompilacji.
 
       - name: Konfiguracja ProGuard i wyłączenie blokad SDK
         run: |
