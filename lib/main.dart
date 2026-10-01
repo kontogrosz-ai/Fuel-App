@@ -82,7 +82,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // Ustawienie initialIndex: 1 powoduje, że LPG jest domyślnie wybraną zakładką
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
   }
 
   @override
@@ -192,10 +193,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedCost;
     double? detectedLiters;
-    FuelType detectedType = FuelType.pb;
+    FuelType detectedType = FuelType.lpg; // Domyślnie LPG przy braku dopasowania OCR
 
     if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
       detectedType = FuelType.lpg;
+    } else if (text.toUpperCase().contains('PB') || text.toUpperCase().contains('BENZYNA') || text.toUpperCase().contains('95') || text.toUpperCase().contains('98')) {
+      detectedType = FuelType.pb;
     }
 
     final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
@@ -228,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final costController = TextEditingController(text: initialCost?.toStringAsFixed(2) ?? '');
     final litersController = TextEditingController(text: initialLiters?.toStringAsFixed(2) ?? '');
     
-    FuelType selectedType = initialType ?? FuelType.pb;
+    FuelType selectedType = initialType ?? FuelType.lpg;
 
     final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
     double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.last.odometer : null;
