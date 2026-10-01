@@ -1,3 +1,4 @@
+wprowadź zmiany w Interfejs użytkownika:
 1) ustaw LPG jako domyślną zakładkę
 2) Nagłówek: "Spalanie PB & LPG" zmień na "Tanker App"
 
@@ -7,4 +8,8 @@
 6) dodaj zapisywanie i przechowywanie danych
 7) możliwość edycji wprowadzonych danych
 8) sortuj dane malejąco według daty transakcji widocznej na paragonie
-9) dodaj możliwość usuwania wybranych wpisów
+9) dodaj możliwość usuwania wybranych wpisów\
+
+10) Wykres spalania: Średnie spalanie na przestrzeni miesięcy
+11) Import danych z JSON, plik ma nazwę: "Dane_aplikacji.json"
+12) Auto-backup: Automatyczne tworzenie kopii zapasowej  w pamięci urządzenia.
