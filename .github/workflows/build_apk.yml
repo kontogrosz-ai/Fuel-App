@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Instalacja Javy (Temurin JDK 17)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -30,20 +30,46 @@ jobs:
           rm -rf android
           flutter create . --platforms=android --org com.example.fueltracker
 
-      - name: Aktualizacja wersji Android SDK i minSdkVersion
+      - name: Nadpisanie wersji SDK w build.gradle
         run: |
-          sed -i 's/minSdkVersion .*/minSdkVersion 21/' android/app/build.gradle || true
-          sed -i 's/flutter.minSdkVersion/21/' android/app/build.gradle || true
-          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' android/app/build.gradle || true
-          sed -i 's/flutter.compileSdkVersion/34/' android/app/build.gradle || true
-          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' android/app/build.gradle || true
-          sed -i 's/flutter.targetSdkVersion/34/' android/app/build.gradle || true
+          cat << 'EOF' > android/app/build.gradle
+          plugins {
+              id "com.android.application"
+              id "kotlin-android"
+              id "dev.flutter.flutter-gradle-plugin"
+          }
+
+          android {
+              namespace "com.example.fueltracker"
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.example.fueltracker"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.debug
+                      minifyEnabled false
+                      shrinkResources false
+                  }
+              }
+          }
+
+          flutter {
+              source '../..'
+          }
+          EOF
 
       - name: Pobranie zależności Fluttera
         run: flutter pub get
 
       - name: Budowanie pliku APK (Release)
-        run: flutter build apk --release --no-tree-shake-icons --no-shrink
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Udostępnienie pliku APK do pobrania
         uses: actions/upload-artifact@v4
