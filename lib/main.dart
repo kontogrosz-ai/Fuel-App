@@ -71,6 +71,308 @@ extension FuelTypeExtension on FuelType {
   }
 }
 
+// --- KROK 1: DEFINICJE MODELI I STANU FILTROWANIA ---
+enum FilterMainMode { time, count, distance, custom }
+enum TimeFilterOption { month1, months3, months6, year1, all }
+enum CountFilterOption { c5, c10, c20, cAll }
+enum DistanceFilterOption { km500, km1000, km5000, kmAll }
+
+class FuelFilterState {
+  FilterMainMode mainMode;
+  TimeFilterOption timeOption;
+  CountFilterOption countOption;
+  DistanceFilterOption distanceOption;
+  DateTimeRange? customDateRange;
+
+  FuelFilterState({
+    this.mainMode = FilterMainMode.time,
+    this.timeOption = TimeFilterOption.months6,
+    this.countOption = CountFilterOption.c10,
+    this.distanceOption = DistanceFilterOption.km1000,
+    this.customDateRange,
+  });
+}
+
+class FilterResult {
+  final List<FuelEntry> filteredEntries;
+  final bool isDataLimited;
+  final String infoMessage;
+
+  FilterResult({
+    required this.filteredEntries,
+    required this.isDataLimited,
+    required this.infoMessage,
+  });
+}
+
+// --- KROK 2: ALGORYTM FILTRUJĄCY DANE ---
+FilterResult applyFuelFilter(List<FuelEntry> allEntries, FuelFilterState filterState) {
+  final sorted = List<FuelEntry>.from(allEntries)
+    ..sort((a, b) => b.date.compareTo(a.date));
+
+  if (sorted.isEmpty) {
+    return FilterResult(
+      filteredEntries: [],
+      isDataLimited: false,
+      infoMessage: 'Brak wpisów w bazie danych.',
+    );
+  }
+
+  List<FuelEntry> result = [];
+  String info = '';
+  bool limited = false;
+
+  switch (filterState.mainMode) {
+    case FilterMainMode.time:
+      final now = DateTime.now();
+      DateTime cutoffDate;
+      switch (filterState.timeOption) {
+        case TimeFilterOption.month1:
+          cutoffDate = DateTime(now.year, now.month - 1, now.day);
+          info = 'Filtrowanie: Ostatni miesiąc';
+          break;
+        case TimeFilterOption.months3:
+          cutoffDate = DateTime(now.year, now.month - 3, now.day);
+          info = 'Filtrowanie: Ostatnie 3 miesiące';
+          break;
+        case TimeFilterOption.months6:
+          cutoffDate = DateTime(now.year, now.month - 6, now.day);
+          info = 'Filtrowanie: Ostatnie 6 miesięcy';
+          break;
+        case TimeFilterOption.year1:
+          cutoffDate = DateTime(now.year - 1, now.month, now.day);
+          info = 'Filtrowanie: Ostatni rok';
+          break;
+        case TimeFilterOption.all:
+          cutoffDate = DateTime(2020, 1, 1);
+          info = 'Filtrowanie: Cała historia czasowa';
+          break;
+      }
+      result = sorted.where((e) => e.date.isAfter(cutoffDate) || e.date.isAtSameMomentAs(cutoffDate)).toList();
+      break;
+
+    case FilterMainMode.count:
+      int targetCount = 10;
+      switch (filterState.countOption) {
+        case CountFilterOption.c5: targetCount = 5; info = 'Ostatnie 5 tankowań'; break;
+        case CountFilterOption.c10: targetCount = 10; info = 'Ostatnie 10 tankowań'; break;
+        case CountFilterOption.c20: targetCount = 20; info = 'Ostatnie 20 tankowań'; break;
+        case CountFilterOption.cAll: targetCount = sorted.length; info = 'Wszystkie tankowania'; break;
+      }
+
+      if (sorted.length < targetCount) {
+        limited = true;
+        result = sorted;
+        info += ' (Dostępne tylko ${sorted.length} z żądanych $targetCount tankowań)';
+      } else {
+        result = sorted.take(targetCount).toList();
+        if (targetCount == 1 && sorted.length > 1) {
+          result.add(sorted[1]);
+          info += ' (Dołączono poprzedni wpis dla zachowania ciągłości obliczeń)';
+        }
+      }
+      break;
+
+    case FilterMainMode.distance:
+      double targetKm = 1000;
+      switch (filterState.distanceOption) {
+        case DistanceFilterOption.km500: targetKm = 500; info = 'Ostatnie 500 km'; break;
+        case DistanceFilterOption.km1000: targetKm = 1000; info = 'Ostatnie 1000 km'; break;
+        case DistanceFilterOption.km5000: targetKm = 5000; info = 'Ostatnie 5000 km'; break;
+        case DistanceFilterOption.kmAll: targetKm = double.infinity; info = 'Cały dystans'; break;
+      }
+
+      double accumulatedKm = 0.0;
+      for (var entry in sorted) {
+        result.add(entry);
+        if (entry.tripDistance != null) {
+          accumulatedKm += entry.tripDistance!;
+        }
+        if (accumulatedKm >= targetKm) break;
+      }
+      if (accumulatedKm < targetKm && targetKm != double.infinity) {
+        limited = true;
+        info += ' (Osiągnięto maksymalny dostępny dystans: ${accumulatedKm.toStringAsFixed(0)} km)';
+      }
+      break;
+
+    case FilterMainMode.custom:
+      if (filterState.customDateRange != null) {
+        final start = filterState.customDateRange!.start;
+        final end = filterState.customDateRange!.end;
+        result = sorted.where((e) => 
+          (e.date.isAfter(start) || e.date.isAtSameMomentAs(start)) &&
+          (e.date.isBefore(end) || e.date.isAtSameMomentAs(end))
+        ).toList();
+        info = 'Zakres: ${start.day}.${start.month}.${start.year} - ${end.day}.${end.month}.${end.year}';
+      } else {
+        result = sorted;
+        info = 'Własny zakres: Brak wybranego okresu';
+      }
+      break;
+  }
+
+  return FilterResult(
+    filteredEntries: result,
+    isDataLimited: limited,
+    infoMessage: info,
+  );
+}
+
+// --- KROK 3: KOMPONENT UI FILTRA ---
+class FuelFilterWidget extends StatefulWidget {
+  final FuelFilterState initialFilterState;
+  final ValueChanged<FuelFilterState> onFilterChanged;
+
+  const FuelFilterWidget({
+    super.key,
+    required this.initialFilterState,
+    required this.onFilterChanged,
+  });
+
+  @override
+  State<FuelFilterWidget> createState() => _FuelFilterWidgetState();
+}
+
+class _FuelFilterWidgetState extends State<FuelFilterWidget> {
+  late FuelFilterState _currentFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentFilter = widget.initialFilterState;
+  }
+
+  void _update(VoidCallback fn) {
+    setState(fn);
+    widget.onFilterChanged(_currentFilter);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SegmentedButton<FilterMainMode>(
+              segments: const [
+                ButtonSegment(value: FilterMainMode.time, label: Text('Czas'), icon: Icon(Icons.access_time, size: 16)),
+                ButtonSegment(value: FilterMainMode.count, label: Text('Ilość'), icon: Icon(Icons.format_list_numbered, size: 16)),
+                ButtonSegment(value: FilterMainMode.distance, label: Text('Dystans'), icon: Icon(Icons.map, size: 16)),
+                ButtonSegment(value: FilterMainMode.custom, label: Text('Własny'), icon: Icon(Icons.date_range, size: 16)),
+              ],
+              selected: {_currentFilter.mainMode},
+              onSelectionChanged: (Set<FilterMainMode> selection) {
+                _update(() => _currentFilter.mainMode = selection.first);
+              },
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _buildSubOptionsChips(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildSubOptionsChips() {
+    List<Widget> chips = [];
+
+    if (_currentFilter.mainMode == FilterMainMode.time) {
+      for (var option in TimeFilterOption.values) {
+        String label = '';
+        switch (option) {
+          case TimeFilterOption.month1: label = '1 miesiąc'; break;
+          case TimeFilterOption.months3: label = '3 miesiące'; break;
+          case TimeFilterOption.months6: label = '6 miesięcy'; break;
+          case TimeFilterOption.year1: label = '1 rok'; break;
+          case TimeFilterOption.all: label = 'Wszystko'; break;
+        }
+        chips.add(Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: _currentFilter.timeOption == option,
+            onSelected: (selected) {
+              if (selected) _update(() => _currentFilter.timeOption = option);
+            },
+          ),
+        ));
+      }
+    } else if (_currentFilter.mainMode == FilterMainMode.count) {
+      for (var option in CountFilterOption.values) {
+        String label = '';
+        switch (option) {
+          case CountFilterOption.c5: label = 'Ostatnie 5'; break;
+          case CountFilterOption.c10: label = 'Ostatnie 10'; break;
+          case CountFilterOption.c20: label = 'Ostatnie 20'; break;
+          case CountFilterOption.cAll: label = 'Wszystkie'; break;
+        }
+        chips.add(Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: _currentFilter.countOption == option,
+            onSelected: (selected) {
+              if (selected) _update(() => _currentFilter.countOption = option);
+            },
+          ),
+        ));
+      }
+    } else if (_currentFilter.mainMode == FilterMainMode.distance) {
+      for (var option in DistanceFilterOption.values) {
+        String label = '';
+        switch (option) {
+          case DistanceFilterOption.km500: label = '500 km'; break;
+          case DistanceFilterOption.km1000: label = '1000 km'; break;
+          case DistanceFilterOption.km5000: label = '5000 km'; break;
+          case DistanceFilterOption.kmAll: label = 'Cały dystans'; break;
+        }
+        chips.add(Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: _currentFilter.distanceOption == option,
+            onSelected: (selected) {
+              if (selected) _update(() => _currentFilter.distanceOption = option);
+            },
+          ),
+        ));
+      }
+    } else if (_currentFilter.mainMode == FilterMainMode.custom) {
+      chips.add(
+        ActionChip(
+          icon: const Icon(Icons.calendar_today, size: 16),
+          label: Text(_currentFilter.customDateRange == null
+              ? 'Wybierz daty z kalendarza'
+              : '${_currentFilter.customDateRange!.start.day}.${_currentFilter.customDateRange!.start.month}.${_currentFilter.customDateRange!.start.year} - ${_currentFilter.customDateRange!.end.day}.${_currentFilter.customDateRange!.end.month}.${_currentFilter.customDateRange!.end.year}'),
+          onPressed: () async {
+            final picked = await showDateRangePicker(
+              context: context,
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now(),
+              initialDateRange: _currentFilter.customDateRange,
+            );
+            if (picked != null) {
+              _update(() => _currentFilter.customDateRange = picked);
+            }
+          },
+        ),
+      );
+    }
+
+    return chips;
+  }
+}
+
 class FuelEntry {
   final String id;
   final FuelType fuelType;
@@ -79,7 +381,7 @@ class FuelEntry {
   final double? odometer;
   final double? tripDistance;
   final DateTime date;
-  final bool isFullTank; // Nowe pole rozróżniające tankowanie do pełna i częściowe
+  final bool isFullTank;
 
   FuelEntry({
     String? id,
@@ -89,7 +391,7 @@ class FuelEntry {
     this.odometer,
     this.tripDistance,
     DateTime? date,
-    this.isFullTank = true, // Domyślnie każde tankowanie jest pełnym bakiem
+    this.isFullTank = true,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         date = date ?? DateTime.now();
 
@@ -125,7 +427,7 @@ class FuelEntry {
       odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
       tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
       date: DateTime.parse(json['date']),
-      isFullTank: json['isFullTank'] as bool? ?? true, // Zabezpieczenie dla starych plików JSON
+      isFullTank: json['isFullTank'] as bool? ?? true,
     );
   }
 }
@@ -157,11 +459,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entries = [];
   bool _isScanning = false;
   bool _isLoading = true;
-  DateTimeRange? _selectedDateRange;
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  DateTimeRange? _chartDateRange;
+  
+  // Stan zaawansowanego filtra
+  FuelFilterState _fuelFilterState = FuelFilterState();
 
   @override
   void initState() {
@@ -367,7 +670,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
-            // Domyślnie z Excela przyjmujemy tankowanie pełne
             if (cost > 0 && liters > 0) {
               importedEntries.add(FuelEntry(
                 fuelType: type,
@@ -449,20 +751,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  List<FuelEntry> get _filteredEntries {
-    List<FuelEntry> list = List.from(_entries);
-    if (_selectedDateRange != null) {
-      list = list.where((e) {
-        return e.date.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
-               e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
-    }
-    list.sort((a, b) => b.date.compareTo(a.date));
-    return list;
+  // --- INTEGRACJA FILTRA Z DANYMI ---
+  FilterResult _getFilterResultForType(FuelType type) {
+    final typeEntries = _entries.where((e) => e.fuelType == type).toList();
+    return applyFuelFilter(typeEntries, _fuelFilterState);
   }
 
   List<FuelEntry> _entriesForType(FuelType type) {
-    return _filteredEntries.where((e) => e.fuelType == type).toList();
+    return _getFilterResultForType(type).filteredEntries;
   }
 
   double _totalCostFor(FuelType type) =>
@@ -475,7 +771,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
 
-    // 1. Jeśli wpisy posiadają wpisany dystans odcinka, używamy go priorytetowo
     double totalDistance = 0.0;
     double totalLitersUsed = 0.0;
     bool hasTrip = false;
@@ -492,9 +787,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return (totalLitersUsed / totalDistance) * 100;
     }
 
-    // 2. Obliczenia oparte o stan licznika (odometer) z uwzględnieniem cykli (pełny -> częściowe -> pełny)
     final listWithOdo = list.where((e) => e.odometer != null).toList()
-      ..sort((a, b) => a.date.compareTo(b.date)); // od najstarszego do najnowszego
+      ..sort((a, b) => a.date.compareTo(b.date));
 
     if (listWithOdo.length < 2) return null;
 
@@ -504,7 +798,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     int startIndex = 0;
     for (int i = 1; i < listWithOdo.length; i++) {
-      // Zamknięcie cyklu następuje przy tankowaniu do pełna
       if (listWithOdo[i].isFullTank) {
         double odoDiff = listWithOdo[i].odometer! - listWithOdo[startIndex].odometer!;
         if (odoDiff > 0) {
@@ -524,7 +817,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return (cumulativeLiters / cumulativeOdoDiff) * 100;
     }
 
-    // Fallback do metody liniowej (między skrajnymi licznikami)
     final newest = listWithOdo.last;
     final oldest = listWithOdo.first;
     double odoDiff = newest.odometer! - oldest.odometer!;
@@ -537,39 +829,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     return null;
-  }
-
-  // Benzyna (PB): średnie spalanie z 5 ostatnich wpisów
-  double? _pbAvgConsumption() {
-    final list = _entriesForType(FuelType.pb);
-    final sorted = List<FuelEntry>.from(list)..sort((a, b) => b.date.compareTo(a.date));
-    final last5 = sorted.take(5).toList();
-    return _calculateConsumptionForList(last5);
-  }
-
-  // LPG: średnie spalanie z ostatnich 6 miesięcy
-  double? _lpgAvgConsumption() {
-    final list = _entriesForType(FuelType.lpg);
-    final now = DateTime.now();
-    final sixMonthsAgo = DateTime(now.year, now.month - 6, now.day);
-    final filtered = list.where((e) => e.date.isAfter(sixMonthsAgo) || e.date.isAtSameMomentAs(sixMonthsAgo)).toList();
-    return _calculateConsumptionForList(filtered);
-  }
-
-  Future<void> _selectDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDateRange: _selectedDateRange,
-    );
-    if (picked != null) {
-      setState(() => _selectedDateRange = picked);
-    }
-  }
-
-  void _clearDateFilter() {
-    setState(() => _selectedDateRange = null);
   }
 
   void _deleteEntry(FuelEntry entry) {
@@ -708,7 +967,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
-    bool isFullTank = isEditing ? entryToEdit.isFullTank : true; // Nowy stan przełącznika
+    bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
 
     final sortedEntries = List<FuelEntry>.from(_entries)..sort((a, b) => b.date.compareTo(a.date));
     final entriesWithOdo = sortedEntries.where((e) => e.odometer != null).toList();
@@ -775,7 +1034,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 8),
 
-                // Przełącznik tankowania do pełna / częściowego
                 SwitchListTile(
                   title: const Text('Tankowanie do pełna', style: TextStyle(fontSize: 14)),
                   subtitle: Text(
@@ -872,7 +1130,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   odometer: odo,
                   tripDistance: trip,
                   date: selectedDate,
-                  isFullTank: isFullTank, // Przekazanie stanu przełącznika
+                  isFullTank: isFullTank,
                 );
 
                 setState(() {
@@ -897,7 +1155,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _exportToExcel() async {
-    if (_filteredEntries.isEmpty) {
+    final filteredList = _entriesForType(_chartFuelType);
+    if (filteredList.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Brak danych do wyeksportowania.')),
       );
@@ -939,7 +1198,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
         double totalCost = _totalCostFor(type);
         double totalLiters = _totalLitersFor(type);
-        double? avgCons = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
+        double? avgCons = _calculateConsumptionForList(list);
 
         sheetObject.appendRow([]);
         sheetObject.appendRow([
@@ -1063,17 +1322,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.date_range),
-            tooltip: 'Filtruj daty',
-            onPressed: _selectDateRange,
-          ),
-          if (_selectedDateRange != null)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: 'Wyczyść filtr dat',
-              onPressed: _clearDateFilter,
-            ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'export_excel') {
@@ -1125,14 +1373,46 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildFuelTab(FuelType type) {
-    final entries = _entriesForType(type);
-    final avgConsumption = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
-    final statTitle = type == FuelType.pb 
-        ? 'Średnie spalanie (5 ostatnich wpisów)' 
-        : 'Średnie spalanie (ostatnie 6 miesięcy)';
+    final filterResult = _getFilterResultForType(type);
+    final entries = filterResult.filteredEntries;
+    final avgConsumption = _calculateConsumptionForList(entries);
 
     return Column(
       children: [
+        // Komponent sterujący filtrowaniem (Czas / Ilość / Dystans / Własny)
+        FuelFilterWidget(
+          initialFilterState: _fuelFilterState,
+          onFilterChanged: (newState) {
+            setState(() {
+              _fuelFilterState = newState;
+            });
+          },
+        ),
+        // Etykieta informacyjna o stanie filtra / ograniczeniach danych
+        if (filterResult.infoMessage.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+            child: Row(
+              children: [
+                Icon(
+                  filterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
+                  size: 14,
+                  color: filterResult.isDataLimited ? Colors.orange : Colors.grey,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    filterResult.infoMessage,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                      color: filterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Card(
           margin: const EdgeInsets.all(12),
           elevation: 3,
@@ -1142,30 +1422,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildStatItem(
-                  statTitle,
+                  'Średnie spalanie (${type.label})',
                   avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} L/100km' : 'Brak danych',
                 ),
               ],
             ),
           ),
         ),
-        if (_selectedDateRange != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Filtr: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month}.${_selectedDateRange!.start.year} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
-                  style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
-                ),
-                TextButton(
-                  onPressed: _clearDateFilter,
-                  child: const Text('Resetuj filtr', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-          ),
         Expanded(
           child: entries.isEmpty
               ? Center(
@@ -1225,7 +1488,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                           subtitle: Text(
                             'Data: ${entry.date.day}.${entry.date.month}.${entry.date.year}'
-                            '${!entry.isFullTank ? ' • [Nie do pełna]' : ''}' // Oznaczenie częściowego tankowania
+                            '${!entry.isFullTank ? ' • [Nie do pełna]' : ''}'
                             '${entry.tripDistance != null ? ' • Dystans: ${entry.tripDistance} km' : ''}'
                             '${entry.odometer != null ? ' • Licznik: ${entry.odometer} km' : ''}'
                             '${entry.singleConsumption != null ? '\nSpalanie: ${entry.singleConsumption!.toStringAsFixed(2)} L/100km' : ''}',
@@ -1247,13 +1510,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE) ---
   Widget _buildChartsTab() {
-    List<FuelEntry> chartEntries = _entries.where((e) => e.fuelType == _chartFuelType).toList();
-    if (_chartDateRange != null) {
-      chartEntries = chartEntries.where((e) {
-        return e.date.isAfter(_chartDateRange!.start.subtract(const Duration(days: 1))) &&
-               e.date.isBefore(_chartDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
-    }
+    List<FuelEntry> chartEntries = _entriesForType(_chartFuelType);
 
     final Map<String, List<FuelEntry>> monthlyGroups = {};
     for (var entry in chartEntries) {
@@ -1285,32 +1542,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             },
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime.now(),
-                    initialDateRange: _chartDateRange,
-                  );
-                  if (picked != null) {
-                    setState(() => _chartDateRange = picked);
-                  }
-                },
-                icon: const Icon(Icons.date_range, size: 18),
-                label: Text(_chartDateRange == null
-                    ? 'Wybierz zakres dat'
-                    : '${_chartDateRange!.start.day}.${_chartDateRange!.start.month}.${_chartDateRange!.start.year} - ${_chartDateRange!.end.day}.${_chartDateRange!.end.month}.${_chartDateRange!.end.year}'),
-              ),
-              if (_chartDateRange != null)
-                TextButton(
-                  onPressed: () => setState(() => _chartDateRange = null),
-                  child: const Text('Resetuj zakres'),
+          // Informacja o aktywnym filtrze globalnym na zakładce wykresów
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.teal.shade50,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.filter_list, size: 18, color: Colors.teal),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Wykres korzysta z aktywnego filtra z zakładek paliwowych.',
+                    style: TextStyle(fontSize: 12, color: Colors.teal.shade800),
+                  ),
                 ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 24),
           Text(
@@ -1327,7 +1577,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       height: 200,
                       child: Center(
                         child: Text(
-                          'Brak wystarczających danych do wygenerowania wykresu.',
+                          'Brak wystarczających danych do wygenerowania wykresu dla wybranych kryteriów.',
                           style: TextStyle(color: Colors.grey),
                           textAlign: TextAlign.center,
                         ),
