@@ -164,7 +164,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
       }).toList();
     }
-    list.sort((a, b) => a.date.compareTo(b.date));
+    // ZMIANA: Sortowanie malejąco (najnowsza data na samej górze)
+    list.sort((a, b) => b.date.compareTo(a.date));
     return list;
   }
 
@@ -179,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
   double? _calculatedAvgConsumptionFor(FuelType type) {
-    final list = _entriesForType(type);
+    final list = _entriesForType(type); // Lista jest teraz posortowana malejąco (najnowsze na górze)
     if (list.isEmpty) return null;
 
     double totalDistance = 0.0;
@@ -198,13 +199,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     final listWithOdo = list.where((e) => e.odometer != null).toList();
     if (listWithOdo.length >= 2) {
-      final first = listWithOdo.first;
-      final last = listWithOdo.last;
-      double odoDiff = last.odometer! - first.odometer!;
+      final newest = listWithOdo.first;
+      final oldest = listWithOdo.last;
+      double odoDiff = newest.odometer! - oldest.odometer!;
 
       if (odoDiff > 0) {
         double litersDrawn = 0.0;
-        for (int i = 1; i < listWithOdo.length; i++) {
+        // Ponieważ lista jest malejąca, pomijamy OSTATNI (najstarszy) element na liście.
+        for (int i = 0; i < listWithOdo.length - 1; i++) {
           litersDrawn += listWithOdo[i].liters;
         }
         return (litersDrawn / odoDiff) * 100;
@@ -342,7 +344,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // Ujednolicony formularz dla Dodawania (ze skanera/ręcznie) i Edycji wpisów
   void _showEntryFormDialog({
     FuelEntry? entryToEdit,
     double? initialCost,
@@ -368,8 +369,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
 
-    final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
-    double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.last.odometer : null;
+    // Pobranie chronologicznie najnowszego stanu licznika (ponieważ główna lista _entries może nie być posortowana)
+    final sortedEntries = List<FuelEntry>.from(_entries)..sort((a, b) => b.date.compareTo(a.date));
+    final entriesWithOdo = sortedEntries.where((e) => e.odometer != null).toList();
+    double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.first.odometer : null;
 
     showDialog(
       context: context,
@@ -506,7 +509,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 }
 
                 final newEntry = FuelEntry(
-                  id: isEditing ? entryToEdit.id : null, // Przy edycji zachowujemy stare ID
+                  id: isEditing ? entryToEdit.id : null,
                   fuelType: selectedType,
                   cost: cost,
                   liters: liters,
@@ -519,7 +522,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   if (isEditing) {
                     final index = _entries.indexWhere((e) => e.id == entryToEdit.id);
                     if (index != -1) {
-                      _entries[index] = newEntry; // Zastąpienie starego wpisu nowym
+                      _entries[index] = newEntry;
                     }
                   } else {
                     _entries.add(newEntry);
@@ -543,7 +546,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     void createSheetForType(String sheetName, FuelType type) {
       Sheet sheetObject = excel[sheetName];
-      final list = _entriesForType(type);
+      final list = _entriesForType(type); // Lista również tu będzie wyeksportowana od najnowszych do najstarszych
 
       sheetObject.appendRow([
         'Data',
@@ -683,7 +686,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         _deleteEntry(entry);
                       },
                       child: ListTile(
-                        // Kliknięcie we wpis otwiera okno edycji
                         onTap: () => _showEntryFormDialog(entryToEdit: entry),
                         leading: CircleAvatar(
                           backgroundColor: color.shade100,
