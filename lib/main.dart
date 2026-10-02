@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -576,14 +577,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  
   FuelFilterState _fuelFilterState = FuelFilterState();
+
+  // --- OBSŁUGA SPEECH TO TEXT ---
+  final stt.SpeechToText _speechToText = stt.SpeechToText();
+  bool _speechEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
     _initialize();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      _speechEnabled = await _speechToText.initialize();
+    } catch (e) {
+      debugPrint('Błąd inicjalizacji SpeechToText: $e');
+    }
   }
 
   Future<void> _initialize() async {
@@ -655,6 +668,157 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
       return false;
     }
+  }
+
+  // --- PARSER WPROWADZANIA GŁOSOWEGO (SPEECH-TO-TEXT) ---
+  Map<String, dynamic> _parseSpokenText(String text) {
+    final lower = text.toLowerCase();
+    
+    FuelType detectedType = FuelType.lpg;
+    if (lower.contains('benzyn') || lower.contains('pb') || lower.contains('95') || lower.contains('98')) {
+      detectedType = FuelType.pb;
+    } else if (lower.contains('lpg') || lower.contains('gaz') || lower.contains('autogaz')) {
+      detectedType = FuelType.lpg;
+    }
+
+    double? cost;
+    double? liters;
+    double? odometer;
+    double? tripDistance;
+
+    // Dopasowanie kosztu (zł, złotych, PLN)
+    final costRegex = RegExp(r'(?:za|koszt|kwota)?\s*(\d+[\.,]?\d*)\s*(?:zł|złote|złotych|pln)\b');
+    final costMatch = costRegex.firstMatch(lower);
+    if (costMatch != null) {
+      cost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    // Dopasowanie litrów (l, litra, litry, litrów)
+    final litersRegex = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litra|litry|litrów)\b');
+    final litersMatch = litersRegex.firstMatch(lower);
+    if (litersMatch != null) {
+      liters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    // Dopasowanie stanu licznika (licznik, przebieg)
+    final odoRegex = RegExp(r'(?:przebieg|licznik|stan)\s*(\d+[\.,]?\d*)');
+    final odoMatch = odoRegex.firstMatch(lower);
+    if (odoMatch != null) {
+      odometer = double.tryParse(odoMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    // Dopasowanie dystansu odcinka (dystans, trasa, odcinek)
+    final tripRegex = RegExp(r'(?:dystans|trasa|odcinek|km)\s*(\d+[\.,]?\d*)');
+    final tripMatch = tripRegex.firstMatch(lower);
+    if (tripMatch != null && odoMatch == null) {
+      tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    return {
+      'cost': cost,
+      'liters': liters,
+      'detectedType': detectedType,
+      'odometer': odometer,
+      'tripDistance': tripDistance,
+      'rawText': text,
+    };
+  }
+
+  void _startListeningVoiceInput() async {
+    if (!_speechEnabled) {
+      await _initSpeech();
+      if (!_speechEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Udsłuchiwanie niedostępne. Sprawdź uprawnienia do mikrofonu.')),
+        );
+        return;
+      }
+    }
+
+    String spokenWords = '';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          if (!_speechToText.isListening) {
+            _speechToText.listen(
+              localeId: 'pl_PL',
+              onResult: (result) {
+                setDialogState(() {
+                  spokenWords = result.recognizedWords;
+                });
+              },
+            );
+          }
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.mic, color: Colors.red, size: 28),
+                SizedBox(width: 8),
+                Text('Mów teraz...'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Powiedz np.: "Zatankowałem LPG za 120 zł, 28 litrów, przebieg 185000"',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.teal.shade200),
+                  ),
+                  child: Text(
+                    spokenWords.isEmpty ? 'Nasłuchiwanie...' : spokenWords,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontStyle: spokenWords.isEmpty ? FontStyle.italic : FontStyle.normal,
+                      color: spokenWords.isEmpty ? Colors.grey : Colors.black,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _speechToText.stop();
+                  Navigator.pop(dialogCtx);
+                },
+                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _speechToText.stop();
+                  Navigator.pop(dialogCtx);
+                  if (spokenWords.isNotEmpty) {
+                    final parsed = _parseSpokenText(spokenWords);
+                    _showEntryFormDialog(
+                      initialCost: parsed['cost'] as double?,
+                      initialLiters: parsed['liters'] as double?,
+                      initialType: parsed['detectedType'] as FuelType?,
+                      initialOdometer: parsed['odometer'] as double?,
+                      initialTripDistance: parsed['tripDistance'] as double?,
+                    );
+                  }
+                },
+                child: const Text('Zatwierdź tekst'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _exportJson() async {
@@ -1130,6 +1294,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     double? initialLiters,
     FuelType? initialType,
     DateTime? initialDate,
+    double? initialOdometer,
+    double? initialTripDistance,
   }) {
     final bool isEditing = entryToEdit != null;
 
@@ -1140,10 +1306,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       text: isEditing ? entryToEdit.liters.toStringAsFixed(2) : initialLiters?.toStringAsFixed(2) ?? '',
     );
     final tripController = TextEditingController(
-      text: isEditing && entryToEdit.tripDistance != null ? entryToEdit.tripDistance!.toStringAsFixed(1) : '',
+      text: isEditing && entryToEdit.tripDistance != null
+          ? entryToEdit.tripDistance!.toStringAsFixed(1)
+          : initialTripDistance?.toStringAsFixed(1) ?? '',
     );
     final odometerController = TextEditingController(
-      text: isEditing && entryToEdit.odometer != null ? entryToEdit.odometer!.toStringAsFixed(0) : '',
+      text: isEditing && entryToEdit.odometer != null
+          ? entryToEdit.odometer!.toStringAsFixed(0)
+          : initialOdometer?.toStringAsFixed(0) ?? '',
     );
     
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
@@ -1168,7 +1338,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
+              IconButton(
+                icon: const Icon(Icons.mic, color: Colors.teal),
+                tooltip: 'Dyktuj głosem',
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _startListeningVoiceInput();
+                },
+              ),
+            ],
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1186,7 +1369,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
+                            'Popraw wartości w polach, jeśli rozpoznany tekst/skan zawiera błędy.',
                             style: TextStyle(fontSize: 12),
                           ),
                         ),
@@ -1484,6 +1667,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   'Dodaj nowe tankowanie',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.mic, color: Colors.teal),
+                title: const Text('Wprowadź głosem (Speech-to-Text)'),
+                subtitle: const Text('Podyktuj koszt, litry i typ paliwa'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _startListeningVoiceInput();
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt),
