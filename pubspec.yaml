@@ -17,6 +17,7 @@ dependencies:
   path_provider: ^2.1.2
   share_plus: ^8.0.2
   cupertino_icons: ^1.0.6
+  shared_preferences: ^2.2.2  # Dodane do śledzenia daty ostatniego backupu (miesięczny automatyczny backup)
 
 dev_dependencies:
   flutter_test:
