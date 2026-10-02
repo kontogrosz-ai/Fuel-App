@@ -6,9 +6,56 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:excel/excel.dart' hide Border;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Automatyczny backup sprawdzany przy każdym uruchomieniu aplikacji
+  await _checkAndPerformMonthlyBackup();
+
   runApp(const FuelTrackerApp());
+}
+
+// --- AUTOMATYCZNY BACKUP RAZ W MIESIĄCU ---
+Future<void> _checkAndPerformMonthlyBackup() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final lastBackupStr = prefs.getString('last_auto_backup');
+    final now = DateTime.now();
+
+    bool shouldBackup = false;
+    if (lastBackupStr == null) {
+      shouldBackup = true;
+    } else {
+      final lastBackup = DateTime.parse(lastBackupStr);
+      if (now.difference(lastBackup).inDays >= 30) {
+        shouldBackup = true;
+      }
+    }
+
+    if (shouldBackup) {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/Dane_Tankowania.json');
+      
+      if (await file.exists()) {
+        final backupDir = Directory('${directory.path}/backups');
+        if (!await backupDir.exists()) {
+          await backupDir.create(recursive: true);
+        }
+
+        final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        final backupFile = File('${backupDir.path}/tanker_backup_$dateStr.json');
+        
+        await file.copy(backupFile.path);
+        await prefs.setString('last_auto_backup', now.toIso8601String());
+        debugPrint("Automatyczny miesięczny backup wykonany pomyślnie.");
+      }
+    }
+  } catch (e) {
+    debugPrint("Błąd automatycznego backupu: $e");
+  }
 }
 
 enum FuelType { pb, lpg }
@@ -85,7 +132,7 @@ class FuelTrackerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tanker App',
+      title: 'Fuel Tracker App',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
@@ -153,6 +200,92 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       await file.writeAsString(jsonEncode(jsonList));
     } catch (e) {
       debugPrint("Błąd zapisu danych: $e");
+    }
+  }
+
+  // --- RĘCZNY EKSPORT I IMPORT JSON ---
+  Future<void> _exportJson() async {
+    try {
+      final file = await _getJsonFile();
+      if (!await file.exists() || _entries.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Brak danych do wyeksportowania.')),
+        );
+        return;
+      }
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'Kopia zapasowa - Fuel Tracker',
+        text: 'Plik kopii zapasowej bazy danych JSON.',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd eksportu JSON: $e')),
+      );
+    }
+  }
+
+  Future<void> _importJson() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final contents = await file.readAsString();
+        final List<dynamic> jsonList = jsonDecode(contents);
+        final importedEntries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
+
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Import danych'),
+            content: Text('Wczytano ${importedEntries.length} wpisów z pliku. Co chcesz zrobić?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
+              ),
+              OutlinedButton(
+                onPressed: () {
+                  setState(() {
+                    _entries = importedEntries;
+                  });
+                  _saveEntriesToFile();
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Zastąpiono bazę nowymi danymi.')),
+                  );
+                },
+                child: const Text('Zastąp obecne'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    for (var entry in importedEntries) {
+                      if (!_entries.any((e) => e.id == entry.id)) {
+                        _entries.add(entry);
+                      }
+                    }
+                  });
+                  _saveEntriesToFile();
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Połączono dane pomyślnie.')),
+                  );
+                },
+                child: const Text('Połącz (Scal)'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd podczas importu pliku: $e')),
+      );
     }
   }
 
@@ -257,7 +390,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZMIANA: Obsługa źródła obrazu (Aparat lub Galeria) ---
   Future<void> _scanReceipt(ImageSource source) async {
     final picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: source);
@@ -537,6 +669,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // --- EKSPORT DO EXCELA (ZGODNY Z WERSJĄ 2.1.0) ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -610,7 +743,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         
         await Share.shareXFiles(
           [XFile(filePath)], 
-          subject: 'Raport z aplikacji Tanker',
+          subject: 'Raport z aplikacji Fuel Tracker',
           text: 'Rozdzielony raport zużycia paliwa PB i LPG z aplikacji.',
         );
       }
@@ -621,7 +754,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // --- ZMIANA: Wyświetlanie menu wyboru po kliknięciu pływającego przycisku ---
   void _showAddOptions() {
     showModalBottomSheet(
       context: context,
@@ -684,21 +816,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(20),
           margin: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: color.shade50,
+            color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.shade200),
+            border: Border.all(color: color.withOpacity(0.3)),
           ),
           child: Column(
             children: [
               Text('ŚREDNIE SPALANIE (${type.label.toUpperCase()})',
-                  style: TextStyle(fontSize: 12, color: color.shade900, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
                 avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} l/100km' : '--',
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: avgConsumption != null ? color.shade900 : Colors.grey,
+                  color: avgConsumption != null ? color : Colors.grey,
                 ),
               ),
               if (avgConsumption == null)
@@ -760,8 +892,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       child: ListTile(
                         onTap: () => _showEntryFormDialog(entryToEdit: entry),
                         leading: CircleAvatar(
-                          backgroundColor: color.shade100,
-                          child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color.shade900),
+                          backgroundColor: color.withOpacity(0.2),
+                          child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color),
                         ),
                         title: Text('${entry.liters.toStringAsFixed(2)} L — ${entry.cost.toStringAsFixed(2)} zł'),
                         subtitle: Text(detailsText),
@@ -773,7 +905,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             if (singleCons != null)
                               Text(
                                 '${singleCons.toStringAsFixed(1)} l/100km',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color.shade900),
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
                               ),
                           ],
                         ),
@@ -790,17 +922,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tanker App'),
+        title: const Text('Fuel Tracker App'),
         actions: [
           IconButton(
             icon: const Icon(Icons.date_range),
             tooltip: 'Filtruj okres',
             onPressed: _selectDateRange,
-          ),
-          IconButton(
-            icon: const Icon(Icons.file_download),
-            tooltip: 'Eksportuj do Excela',
-            onPressed: _exportToExcel,
           ),
         ],
         bottom: TabBar(
@@ -808,6 +935,54 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           tabs: const [
             Tab(icon: Icon(Icons.local_gas_station), text: 'Benzyna (PB)'),
             Tab(icon: Icon(Icons.propane_tank), text: 'LPG'),
+          ],
+        ),
+      ),
+      // --- BOCZNE MENU (DRAWER) Z OPCJAMI EKSPORTU I IMPORTU ---
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.teal),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.local_gas_station, color: Colors.white, size: 40),
+                  SizedBox(height: 10),
+                  Text('Fuel Tracker', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('Zarządzanie paliwem i kopie zapasowe', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_download, color: Colors.teal),
+              title: const Text('Eksportuj do Excela (.xlsx)'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportToExcel();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.code, color: Colors.blue),
+              title: const Text('Eksportuj kopię bazową (JSON)'),
+              subtitle: const Text('Zapisz plik na telefonie / wyślij'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportJson();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file, color: Colors.orange),
+              title: const Text('Importuj bazę z pliku (JSON)'),
+              subtitle: const Text('Przywróć dane z kopii'),
+              onTap: () {
+                Navigator.pop(context);
+                _importJson();
+              },
+            ),
           ],
         ),
       ),
@@ -846,7 +1021,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                   ],
                 ),
-      // --- ZMIANA: Przycisk otwiera teraz dolne menu (BottomSheet) ---
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddOptions,
         icon: const Icon(Icons.add),
