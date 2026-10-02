@@ -288,7 +288,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // --- IMPORT Z PLIKU EXCEL (.xlsx) ---
   Future<void> _importExcel() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -312,7 +311,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             type = FuelType.pb;
           }
 
-          // Pomijamy nagłówek (wiersz 0)
           for (int i = 1; i < table.rows.length; i++) {
             final row = table.rows[i];
             if (row.isEmpty || row[0] == null) continue;
@@ -322,7 +320,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               continue;
             }
 
-            // Parsowanie daty w formacie DD.MM.YYYY
             DateTime entryDate = DateTime.now();
             try {
               final parts = firstCellVal.split('.');
@@ -334,7 +331,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               }
             } catch (_) {}
 
-            // Dystans (kolumna 1)
             double? tripDistance;
             if (row.length > 1 && row[1]?.value != null) {
               final valStr = row[1]!.value.toString();
@@ -343,7 +339,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               }
             }
 
-            // Stan licznika (kolumna 2)
             double? odometer;
             if (row.length > 2 && row[2]?.value != null) {
               final valStr = row[2]!.value.toString();
@@ -352,14 +347,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               }
             }
 
-            // Koszt (kolumna 3)
             double cost = 0.0;
             if (row.length > 3 && row[3]?.value != null) {
               final valStr = row[3]!.value.toString();
               cost = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
-            // Paliwo (kolumna 4)
             double liters = 0.0;
             if (row.length > 4 && row[4]?.value != null) {
               final valStr = row[4]!.value.toString();
@@ -466,8 +459,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
-  double? _calculatedAvgConsumptionFor(FuelType type) {
-    final list = _entriesForType(type); 
+  // Uniwersalna metoda obliczania średniego spalania dla dowolnej listy wpisów
+  double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
 
     double totalDistance = 0.0;
@@ -484,7 +477,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return (totalLitersUsed / totalDistance) * 100;
     }
 
-    final listWithOdo = list.where((e) => e.odometer != null).toList();
+    final listWithOdo = list.where((e) => e.odometer != null).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+      
     if (listWithOdo.length >= 2) {
       final newest = listWithOdo.first;
       final oldest = listWithOdo.last;
@@ -500,6 +495,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     return null;
+  }
+
+  // Benzyna (PB): średnie spalanie z 5 ostatnich wpisów
+  double? _pbAvgConsumption() {
+    final list = _entriesForType(FuelType.pb);
+    final sorted = List<FuelEntry>.from(list)..sort((a, b) => b.date.compareTo(a.date));
+    final last5 = sorted.take(5).toList();
+    return _calculateConsumptionForList(last5);
+  }
+
+  // LPG: średnie spalanie z ostatnich 6 miesięcy
+  double? _lpgAvgConsumption() {
+    final list = _entriesForType(FuelType.lpg);
+    final now = DateTime.now();
+    final sixMonthsAgo = DateTime(now.year, now.month - 6, now.day);
+    final filtered = list.where((e) => e.date.isAfter(sixMonthsAgo) || e.date.isAtSameMomentAs(sixMonthsAgo)).toList();
+    return _calculateConsumptionForList(filtered);
   }
 
   Future<void> _selectDateRange() async {
@@ -865,7 +877,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
         double totalCost = _totalCostFor(type);
         double totalLiters = _totalLitersFor(type);
-        double? avgCons = _calculatedAvgConsumptionFor(type);
+        double? avgCons = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
 
         sheetObject.appendRow([]);
         sheetObject.appendRow([
@@ -927,7 +939,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt),
-                title: const Text('Zrób zdjęcie paragonu (Aparat)'),
+                title: const Text('Skanuj paragon (Aparat)'),
                 onTap: () {
                   Navigator.pop(context);
                   _scanReceipt(ImageSource.camera);
@@ -935,7 +947,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library),
-                title: const Text('Wybierz z galerii zdjęć'),
+                title: const Text('Wybierz paragon z galerii'),
                 onTap: () {
                   Navigator.pop(context);
                   _scanReceipt(ImageSource.gallery);
@@ -943,10 +955,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ListTile(
                 leading: const Icon(Icons.edit),
-                title: const Text('Wprowadź dane ręcznie'),
+                title: const Text('Dodaj ręcznie'),
                 onTap: () {
                   Navigator.pop(context);
                   _showEntryFormDialog();
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.file_upload),
+                title: const Text('Importuj z JSON'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _importJson();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.table_chart),
+                title: const Text('Importuj z Excela (.xlsx)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _importExcel();
                 },
               ),
             ],
@@ -956,112 +985,189 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildFuelTab(FuelType type) {
-    final list = _entriesForType(type);
-    final totalCost = _totalCostFor(type);
-    final totalLiters = _totalLitersFor(type);
-    final avgConsumption = _calculatedAvgConsumptionFor(type);
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Fuel App - Zarządzanie paliwem'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'LPG', icon: Icon(Icons.propane_tank)),
+            Tab(text: 'Benzyna (PB)', icon: Icon(Icons.local_gas_station)),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.date_range),
+            tooltip: 'Filtruj daty',
+            onPressed: _selectDateRange,
+          ),
+          if (_selectedDateRange != null)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: 'Wyczyść filtr dat',
+              onPressed: _clearDateFilter,
+            ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'export_excel') {
+                _exportToExcel();
+              } else if (value == 'export_json') {
+                _exportJson();
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem(
+                value: 'export_excel',
+                child: Text('Eksportuj do Excela (.xlsx)'),
+              ),
+              const PopupMenuItem(
+                value: 'export_json',
+                child: Text('Eksportuj kopia zapasowa (JSON)'),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _isScanning
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Skanowanie paragonu przez ML Kit...'),
+                    ],
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildFuelTab(FuelType.lpg),
+                    _buildFuelTab(FuelType.pb),
+                  ],
+                ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddOptions,
+        tooltip: 'Dodaj tankowanie',
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
 
-    final color = type == FuelType.pb ? Colors.teal : Colors.orange;
+  Widget _buildFuelTab(FuelType type) {
+    final entries = _entriesForType(type);
+    final avgConsumption = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
+    final statTitle = type == FuelType.pb 
+        ? 'Średnie spalanie (5 ostatnich wpisów)' 
+        : 'Średnie spalanie (ostatnie 6 miesięcy)';
 
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.withOpacity(0.3)),
-          ),
-          child: Column(
-            children: [
-              Text('ŚREDNIE SPALANIE (${type.label.toUpperCase()})',
-                  style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(
-                avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} l/100km' : '--',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: avgConsumption != null ? color : Colors.grey,
+        Card(
+          margin: const EdgeInsets.all(12),
+          elevation: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildStatItem(
+                  statTitle,
+                  avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} L/100km' : 'Brak danych',
                 ),
-              ),
-              if (avgConsumption == null)
-                const Text('(podaj dystans lub stan licznika)', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              const Divider(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      const Text('Koszt łączny', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text('${totalCost.toStringAsFixed(2)} zł', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Text('Paliwo łącznie', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text('${totalLiters.toStringAsFixed(2)} L', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ],
-              )
-            ],
+              ],
+            ),
           ),
         ),
-
+        if (_selectedDateRange != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filtr: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month}.${_selectedDateRange!.start.year} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
+                  style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
+                ),
+                TextButton(
+                  onPressed: _clearDateFilter,
+                  child: const Text('Resetuj filtr', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
         Expanded(
-          child: list.isEmpty
-              ? Center(child: Text('Brak wpisów dla ${type.label}.'))
+          child: entries.isEmpty
+              ? Center(
+                  child: Text(
+                    'Brak wpisów dla ${type.label.toLowerCase()}',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                )
               : ListView.builder(
-                  itemCount: list.length,
-                  itemBuilder: (ctx, index) {
-                    final entry = list[index];
-                    final singleCons = entry.singleConsumption;
-
-                    String detailsText = '';
-                    if (entry.tripDistance != null) {
-                      detailsText += 'Trasa: ${entry.tripDistance!.toStringAsFixed(1)} km  ';
-                    }
-                    if (entry.odometer != null) {
-                      detailsText += '• Licznik: ${entry.odometer!.toStringAsFixed(0)} km';
-                    }
-                    if (detailsText.isEmpty) {
-                      detailsText = 'Brak danych przebiegu';
-                    }
-
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) {
+                    final entry = entries[index];
                     return Dismissible(
-                      key: ValueKey(entry.id),
+                      key: Key(entry.id),
                       direction: DismissDirection.endToStart,
                       background: Container(
-                        color: Colors.red.shade400,
                         alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        padding: const EdgeInsets.only(right: 20),
+                        color: Colors.red,
                         child: const Icon(Icons.delete, color: Colors.white),
                       ),
+                      confirmDismiss: (direction) async {
+                        return await showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Potwierdzenie'),
+                            content: const Text('Czy na pewno chcesz usunąć ten wpis?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text('Anuluj'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: const Text('Usuń', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                       onDismissed: (direction) {
                         _deleteEntry(entry);
                       },
-                      child: ListTile(
-                        onTap: () => _showEntryFormDialog(entryToEdit: entry),
-                        leading: CircleAvatar(
-                          backgroundColor: color.withOpacity(0.2),
-                          child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color),
-                        ),
-                        title: Text('${entry.liters.toStringAsFixed(2)} L — ${entry.cost.toStringAsFixed(2)} zł'),
-                        subtitle: Text(detailsText),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text('${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            if (singleCons != null)
-                              Text(
-                                '${singleCons.toStringAsFixed(1)} l/100km',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
-                              ),
-                          ],
+                      child: Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: type == FuelType.lpg ? Colors.amber.shade700 : Colors.blue.shade700,
+                            child: Icon(
+                              type == FuelType.lpg ? Icons.propane_tank : Icons.local_gas_station,
+                              color: Colors.white,
+                            ),
+                          ),
+                          title: Text(
+                            '${entry.cost.toStringAsFixed(2)} PLN (${entry.liters.toStringAsFixed(2)} L)',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            'Data: ${entry.date.day}.${entry.date.month}.${entry.date.year}'
+                            '${entry.tripDistance != null ? ' • Dystans: ${entry.tripDistance} km' : ''}'
+                            '${entry.odometer != null ? ' • Licznik: ${entry.odometer} km' : ''}'
+                            '${entry.singleConsumption != null ? '\nSpalanie: ${entry.singleConsumption!.toStringAsFixed(2)} L/100km' : ''}',
+                          ),
+                          isThreeLine: entry.singleConsumption != null || entry.odometer != null,
+                          trailing: IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.grey),
+                            onPressed: () => _showEntryFormDialog(entryToEdit: entry),
+                          ),
                         ),
                       ),
                     );
@@ -1072,122 +1178,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Fuel App'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.date_range),
-            tooltip: 'Filtruj okres',
-            onPressed: _selectDateRange,
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.propane_tank), text: 'LPG'),
-            Tab(icon: Icon(Icons.local_gas_station), text: 'Benzyna (PB)'),
-          ],
+  Widget _buildStatItem(String title, String value) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
         ),
-      ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(color: Colors.teal),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Icon(Icons.local_gas_station, color: Colors.white, size: 40),
-                  SizedBox(height: 10),
-                  Text('Fuel App', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text('Zarządzanie paliwem i kopie zapasowe', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.file_download, color: Colors.teal),
-              title: const Text('Eksportuj do Excela (.xlsx)'),
-              onTap: () {
-                Navigator.pop(context);
-                _exportToExcel();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.table_view, color: Colors.green),
-              title: const Text('Importuj dane z Excela (.xlsx)'),
-              subtitle: const Text('Wczytaj plik raportu'),
-              onTap: () {
-                Navigator.pop(context);
-                _importExcel();
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.code, color: Colors.blue),
-              title: const Text('Eksportuj kopię bazową (JSON)'),
-              subtitle: const Text('Zapisz plik na telefonie / wyślij'),
-              onTap: () {
-                Navigator.pop(context);
-                _exportJson();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.upload_file, color: Colors.orange),
-              title: const Text('Importuj bazę z pliku (JSON)'),
-              subtitle: const Text('Przywróć dane z kopii'),
-              onTap: () {
-                Navigator.pop(context);
-                _importJson();
-              },
-            ),
-          ],
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _isScanning
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    if (_selectedDateRange != null)
-                      Container(
-                        color: Colors.amber.shade100,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Okres: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            InkWell(
-                              onTap: _clearDateFilter,
-                              child: const Icon(Icons.close, size: 20),
-                            )
-                          ],
-                        ),
-                      ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildFuelTab(FuelType.lpg),
-                          _buildFuelTab(FuelType.pb),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddOptions,
-        icon: const Icon(Icons.add),
-        label: const Text('Dodaj wpis'),
-      ),
+      ],
     );
   }
 }
