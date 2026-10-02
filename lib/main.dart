@@ -164,7 +164,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
       }).toList();
     }
-    // Sortowanie malejąco (najnowsza data na samej górze)
     list.sort((a, b) => b.date.compareTo(a.date));
     return list;
   }
@@ -258,9 +257,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Future<void> _scanReceipt() async {
+  // --- ZMIANA: Obsługa źródła obrazu (Aparat lub Galeria) ---
+  Future<void> _scanReceipt(ImageSource source) async {
     final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.camera);
+    final XFile? image = await picker.pickImage(source: source);
 
     if (image == null) return;
 
@@ -377,12 +377,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(isEditing ? 'Edytuj wpis' : 'Zweryfikuj dane'),
+          title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (!isEditing)
+                if (!isEditing && initialCost != null)
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -402,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ],
                     ),
                   ),
-                if (!isEditing) const SizedBox(height: 16),
+                if (!isEditing && initialCost != null) const SizedBox(height: 16),
 
                 SegmentedButton<FuelType>(
                   segments: const [
@@ -537,7 +537,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ULEPSZONA FUNKCJA EKSPORTU DO EXCELA ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -595,7 +594,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       createSheetForType('Benzyna (PB)', FuelType.pb);
       createSheetForType('LPG', FuelType.lpg);
 
-      excel.delete('Sheet1'); // Usuwamy domyślny pusty arkusz
+      excel.delete('Sheet1'); 
 
       final directory = await getTemporaryDirectory();
       final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
@@ -609,7 +608,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
-        // Okno zapisu / udostępniania systemowego
         await Share.shareXFiles(
           [XFile(filePath)], 
           subject: 'Raport z aplikacji Tanker',
@@ -622,7 +620,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       );
     }
   }
-  // ---------------------------------------------
+
+  // --- ZMIANA: Wyświetlanie menu wyboru po kliknięciu pływającego przycisku ---
+  void _showAddOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'Dodaj nowe tankowanie',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Zrób zdjęcie paragonu (Aparat)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _scanReceipt(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Wybierz z galerii zdjęć'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _scanReceipt(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text('Wprowadź dane ręcznie'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showEntryFormDialog();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildFuelTab(FuelType type) {
     final list = _entriesForType(type);
@@ -754,7 +800,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           IconButton(
             icon: const Icon(Icons.file_download),
             tooltip: 'Eksportuj do Excela',
-            onPressed: _exportToExcel, // <--- Przycisk w prawym górnym rogu
+            onPressed: _exportToExcel,
           ),
         ],
         bottom: TabBar(
@@ -800,10 +846,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                   ],
                 ),
+      // --- ZMIANA: Przycisk otwiera teraz dolne menu (BottomSheet) ---
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _scanReceipt,
-        icon: const Icon(Icons.camera_alt),
-        label: const Text('Zeskanuj paragon'),
+        onPressed: _showAddOptions,
+        icon: const Icon(Icons.add),
+        label: const Text('Dodaj wpis'),
       ),
     );
   }
