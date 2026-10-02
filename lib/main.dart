@@ -274,11 +274,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     await textRecognizer.close();
     setState(() => _isScanning = false);
 
-    _showConfirmationDialog(
-      parsedData['cost'],
-      parsedData['liters'],
-      parsedData['detectedType'],
-      parsedData['date'],
+    _showEntryFormDialog(
+      initialCost: parsedData['cost'],
+      initialLiters: parsedData['liters'],
+      initialType: parsedData['detectedType'],
+      initialDate: parsedData['date'],
     );
   }
 
@@ -288,14 +288,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     FuelType detectedType = FuelType.lpg;
     DateTime? detectedDate;
 
-    // 1. Rozpoznawanie typu paliwa
     if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
       detectedType = FuelType.lpg;
     } else if (text.toUpperCase().contains('PB') || text.toUpperCase().contains('BENZYNA') || text.toUpperCase().contains('95') || text.toUpperCase().contains('98')) {
       detectedType = FuelType.pb;
     }
 
-    // 2. Rozpoznawanie litrów
     final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
     final litersMatch = litersRegex.firstMatch(text);
     if (litersMatch != null) {
@@ -303,14 +301,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    // 3. Rozpoznawanie całkowitego kosztu (szukamy SUMA, RAZEM, PLN, ZŁ)
     final RegExp costRegex = RegExp(r'(?:suma|razem|kwota)\s*[:=]?\s*(\d+[\.,]\d{2})', caseSensitive: false);
     final costMatch = costRegex.firstMatch(text);
     if (costMatch != null) {
       String rawCost = costMatch.group(1)!.replaceAll(',', '.');
       detectedCost = double.tryParse(rawCost);
     } else {
-      // Jeśli nie ma słowa SUMA, szukamy po prostu formatu "123.45 PLN"
       final RegExp plnRegex = RegExp(r'(\d+[\.,]\d{2})\s*(?:pln|zł)', caseSensitive: false);
       final plnMatch = plnRegex.firstMatch(text);
       if (plnMatch != null) {
@@ -319,7 +315,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     }
 
-    // 4. Rozpoznawanie daty
     final regYMD = RegExp(r'\b(20\d{2})[-./](0[1-9]|1[0-2])[-./](0[1-9]|[12]\d|3[01])\b');
     final matchYMD = regYMD.firstMatch(text);
 
@@ -347,51 +342,66 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  void _showConfirmationDialog(double? initialCost, double? initialLiters, FuelType? initialType, DateTime? initialDate) {
-    // Pola tekstowe inicjalizowane wartościami z OCR, użytkownik może je ręcznie zedytować
-    final costController = TextEditingController(text: initialCost?.toStringAsFixed(2) ?? '');
-    final litersController = TextEditingController(text: initialLiters?.toStringAsFixed(2) ?? '');
+  // Ujednolicony formularz dla Dodawania (ze skanera/ręcznie) i Edycji wpisów
+  void _showEntryFormDialog({
+    FuelEntry? entryToEdit,
+    double? initialCost,
+    double? initialLiters,
+    FuelType? initialType,
+    DateTime? initialDate,
+  }) {
+    final bool isEditing = entryToEdit != null;
+
+    final costController = TextEditingController(
+      text: isEditing ? entryToEdit.cost.toStringAsFixed(2) : initialCost?.toStringAsFixed(2) ?? '',
+    );
+    final litersController = TextEditingController(
+      text: isEditing ? entryToEdit.liters.toStringAsFixed(2) : initialLiters?.toStringAsFixed(2) ?? '',
+    );
+    final tripController = TextEditingController(
+      text: isEditing && entryToEdit.tripDistance != null ? entryToEdit.tripDistance!.toStringAsFixed(1) : '',
+    );
+    final odometerController = TextEditingController(
+      text: isEditing && entryToEdit.odometer != null ? entryToEdit.odometer!.toStringAsFixed(0) : '',
+    );
     
-    FuelType selectedType = initialType ?? FuelType.lpg;
-    DateTime selectedDate = initialDate ?? DateTime.now();
+    FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
+    DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
 
     final entriesWithOdo = _entries.where((e) => e.odometer != null).toList();
     double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.last.odometer : null;
 
-    final odometerController = TextEditingController();
-    final tripController = TextEditingController();
-
     showDialog(
       context: context,
-      barrierDismissible: false, // Wymusza podjęcie akcji (Anuluj / Zapisz)
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Zweryfikuj dane'),
+          title: Text(isEditing ? 'Edytuj wpis' : 'Zweryfikuj dane'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Żółty banner informacyjny
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.orange),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
-                          style: TextStyle(fontSize: 12),
+                if (!isEditing)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                if (!isEditing) const SizedBox(height: 16),
 
                 SegmentedButton<FuelType>(
                   segments: const [
@@ -455,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'Stan licznika (km)',
-                    hintText: lastOdometer != null ? 'Ostatnio: ${lastOdometer.toStringAsFixed(0)} km' : 'np. 150000 km',
+                    hintText: (!isEditing && lastOdometer != null) ? 'Ostatnio: ${lastOdometer.toStringAsFixed(0)} km' : 'np. 150000 km',
                     prefixIcon: const Icon(Icons.speed),
                   ),
                 ),
@@ -469,7 +479,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             ElevatedButton(
               onPressed: () {
-                // Walidacja poprawności danych podanych w polach
                 double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
                 double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
 
@@ -477,7 +486,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Uzupełnij poprawnie Koszt i Litry!'))
                   );
-                  return; // Przerywamy jeśli obowiązkowe pola są błędne
+                  return;
                 }
 
                 double? odo = odometerController.text.trim().isNotEmpty
@@ -488,23 +497,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ? double.tryParse(tripController.text.replaceAll(',', '.'))
                     : null;
 
-                if (odo == null && trip != null && lastOdometer != null) {
+                if (odo == null && trip != null && lastOdometer != null && !isEditing) {
                   odo = lastOdometer + trip;
                 }
 
-                if (trip == null && odo != null && lastOdometer != null && odo > lastOdometer) {
+                if (trip == null && odo != null && lastOdometer != null && !isEditing && odo > lastOdometer) {
                   trip = odo - lastOdometer;
                 }
 
+                final newEntry = FuelEntry(
+                  id: isEditing ? entryToEdit.id : null, // Przy edycji zachowujemy stare ID
+                  fuelType: selectedType,
+                  cost: cost,
+                  liters: liters,
+                  odometer: odo,
+                  tripDistance: trip,
+                  date: selectedDate,
+                );
+
                 setState(() {
-                  _entries.add(FuelEntry(
-                    fuelType: selectedType,
-                    cost: cost,
-                    liters: liters,
-                    odometer: odo,
-                    tripDistance: trip,
-                    date: selectedDate,
-                  ));
+                  if (isEditing) {
+                    final index = _entries.indexWhere((e) => e.id == entryToEdit.id);
+                    if (index != -1) {
+                      _entries[index] = newEntry; // Zastąpienie starego wpisu nowym
+                    }
+                  } else {
+                    _entries.add(newEntry);
+                  }
                 });
                 _saveEntriesToFile();
                 Navigator.pop(ctx);
@@ -664,6 +683,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         _deleteEntry(entry);
                       },
                       child: ListTile(
+                        // Kliknięcie we wpis otwiera okno edycji
+                        onTap: () => _showEntryFormDialog(entryToEdit: entry),
                         leading: CircleAvatar(
                           backgroundColor: color.shade100,
                           child: Icon(type == FuelType.pb ? Icons.local_gas_station : Icons.propane_tank, color: color.shade900),
