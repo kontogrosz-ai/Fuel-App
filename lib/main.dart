@@ -126,231 +126,6 @@ class FuelEntry {
   }
 }
 
-// ==========================================
-// 1. MODELE FILTROWANIA
-// ==========================================
-
-enum FilterMode { time, refuels, distance }
-enum TimeFilterOption { month, months3, months6, currentYear, all, custom }
-enum RefuelsFilterOption {
-  r5(5), r10(10), r20(20), r50(50);
-  final int count;
-  const RefuelsFilterOption(this.count);
-}
-enum DistanceFilterOption {
-  d500(500), d1000(1000), d5000(5000), d10000(10000), d20000(20000);
-  final int kilometers;
-  const DistanceFilterOption(this.kilometers);
-}
-
-class FuelFilterState {
-  final FilterMode mode;
-  final TimeFilterOption timeOption;
-  final RefuelsFilterOption refuelsOption;
-  final DistanceFilterOption distanceOption;
-  final DateTimeRange? customDateRange;
-
-  FuelFilterState({
-    this.mode = FilterMode.time,
-    this.timeOption = TimeFilterOption.all,
-    this.refuelsOption = RefuelsFilterOption.r5,
-    this.distanceOption = DistanceFilterOption.d1000,
-    this.customDateRange,
-  });
-
-  FuelFilterState copyWith({
-    FilterMode? mode,
-    TimeFilterOption? timeOption,
-    RefuelsFilterOption? refuelsOption,
-    DistanceFilterOption? distanceOption,
-    DateTimeRange? customDateRange,
-  }) {
-    return FuelFilterState(
-      mode: mode ?? this.mode,
-      timeOption: timeOption ?? this.timeOption,
-      refuelsOption: refuelsOption ?? this.refuelsOption,
-      distanceOption: distanceOption ?? this.distanceOption,
-      customDateRange: customDateRange ?? this.customDateRange,
-    );
-  }
-}
-
-class FilterResult {
-  final List<FuelEntry> filteredEntries;
-  final double totalDistanceKm;
-  final double totalFuelLiters;
-  final double? averageConsumption;
-  final DateTime? startDate;
-  final DateTime? endDate;
-  final int refuelCount;
-  final bool hasInsufficientData;
-  final String infoLabel;
-
-  FilterResult({
-    required this.filteredEntries,
-    required this.totalDistanceKm,
-    required this.totalFuelLiters,
-    required this.averageConsumption,
-    required this.startDate,
-    required this.endDate,
-    required this.refuelCount,
-    required this.hasInsufficientData,
-    required this.infoLabel,
-  });
-}
-
-// ==========================================
-// 2. LOGIKA FILTROWANIA
-// ==========================================
-
-class FuelFilterService {
-  static FilterResult processEntries(
-    List<FuelEntry> rawEntries, 
-    FuelFilterState state, 
-    double? Function(List<FuelEntry>) calcAvg
-  ) {
-    if (rawEntries.isEmpty) {
-      return _emptyResult(rawEntries, 'Brak tankowań w historii.');
-    }
-
-    final sorted = List<FuelEntry>.from(rawEntries)..sort((a, b) => a.date.compareTo(b.date));
-    List<FuelEntry> selected = [];
-    bool isInsufficient = false;
-
-    switch (state.mode) {
-      case FilterMode.time:
-        selected = _filterTime(sorted, state, (v) => isInsufficient = v);
-        break;
-      case FilterMode.refuels:
-        selected = _filterRefuels(sorted, state.refuelsOption, (v) => isInsufficient = v);
-        break;
-      case FilterMode.distance:
-        selected = _filterDistance(sorted, state.distanceOption.kilometers, (v) => isInsufficient = v);
-        break;
-    }
-
-    if (selected.isEmpty) {
-      return _emptyResult(selected, 'Brak tankowań w wybranym zakresie.');
-    }
-
-    double totalFuel = 0.0;
-    for (var e in selected) {
-      totalFuel += e.liters;
-    }
-
-    double totalDistance = 0.0;
-    if (selected.length > 1) {
-      for (int i = 1; i < selected.length; i++) {
-        final current = selected[i];
-        final prev = selected[i - 1];
-        if (current.tripDistance != null && current.tripDistance! > 0) {
-          totalDistance += current.tripDistance!;
-        } else if (current.odometer != null && prev.odometer != null) {
-          totalDistance += (current.odometer! - prev.odometer!);
-        }
-      }
-    } else if (selected.length == 1 && selected.first.tripDistance != null) {
-      totalDistance = selected.first.tripDistance!;
-    }
-
-    if (totalDistance == 0 && selected.length > 1) isInsufficient = true;
-
-    final avgConsumption = calcAvg(selected);
-    final refuelCount = selected.length;
-    final infoLabel = _buildLabel(refuelCount, totalDistance, selected.first.date, selected.last.date, isInsufficient);
-
-    return FilterResult(
-      filteredEntries: selected,
-      totalDistanceKm: totalDistance,
-      totalFuelLiters: totalFuel,
-      averageConsumption: avgConsumption,
-      startDate: selected.first.date,
-      endDate: selected.last.date,
-      refuelCount: refuelCount,
-      hasInsufficientData: isInsufficient,
-      infoLabel: infoLabel,
-    );
-  }
-
-  static List<FuelEntry> _filterTime(List<FuelEntry> sorted, FuelFilterState state, Function(bool) setIns) {
-    final now = DateTime.now();
-    if (state.timeOption == TimeFilterOption.all) return sorted;
-    if (state.timeOption == TimeFilterOption.custom && state.customDateRange != null) {
-      return sorted.where((e) => e.date.isAfter(state.customDateRange!.start.subtract(const Duration(seconds: 1))) && e.date.isBefore(state.customDateRange!.end.add(const Duration(days: 1)))).toList();
-    }
-
-    DateTime cutOffDate;
-    switch (state.timeOption) {
-      case TimeFilterOption.month: cutOffDate = now.subtract(const Duration(days: 30)); break;
-      case TimeFilterOption.months3: cutOffDate = now.subtract(const Duration(days: 90)); break;
-      case TimeFilterOption.months6: cutOffDate = now.subtract(const Duration(days: 180)); break;
-      case TimeFilterOption.currentYear: cutOffDate = DateTime(now.year, 1, 1); break;
-      default: return sorted;
-    }
-
-    final filtered = sorted.where((e) => e.date.isAfter(cutOffDate)).toList();
-    // Dołączamy jedno tankowanie przed zakresem, by móc policzyć dystans/spalanie
-    if (filtered.length < sorted.length && filtered.isNotEmpty) {
-      final index = sorted.indexOf(filtered.first);
-      if (index > 0) filtered.insert(0, sorted[index - 1]);
-    }
-    if (filtered.length < 2) setIns(true);
-    return filtered;
-  }
-
-  static List<FuelEntry> _filterRefuels(List<FuelEntry> sorted, RefuelsFilterOption option, Function(bool) setIns) {
-    final needed = option.count; // Dla N tankowań
-    if (sorted.length <= needed) {
-      if (sorted.length < needed) setIns(true);
-      return sorted;
-    }
-    // Pobieramy N tankowań + 1 wcześniejsze jako punkt odniesienia do dystansu
-    return sorted.sublist(sorted.length - (needed + 1));
-  }
-
-  static List<FuelEntry> _filterDistance(List<FuelEntry> sorted, int targetKm, Function(bool) setIns) {
-    if (sorted.length < 2) {
-      setIns(true);
-      return sorted;
-    }
-    List<FuelEntry> result = [sorted.last];
-    double accumulatedDist = 0.0;
-
-    for (int i = sorted.length - 1; i > 0; i--) {
-      final current = sorted[i];
-      final prev = sorted[i - 1];
-      
-      double dist = 0.0;
-      if (current.tripDistance != null && current.tripDistance! > 0) {
-        dist = current.tripDistance!;
-      } else if (current.odometer != null && prev.odometer != null) {
-        dist = current.odometer! - prev.odometer!;
-      }
-
-      accumulatedDist += dist;
-      result.insert(0, prev);
-
-      if (accumulatedDist >= targetKm) return result;
-    }
-    setIns(true);
-    return sorted;
-  }
-
-  static FilterResult _emptyResult(List<FuelEntry> entries, String msg) => FilterResult(
-      filteredEntries: entries, totalDistanceKm: 0, totalFuelLiters: 0, averageConsumption: null, startDate: null, endDate: null, refuelCount: entries.length, hasInsufficientData: true, infoLabel: msg);
-
-  static String _buildLabel(int count, double dist, DateTime start, DateTime end, bool ins) {
-    final fStart = '${start.day.toString().padLeft(2, '0')}.${start.month.toString().padLeft(2, '0')}.${start.year}';
-    final fEnd = '${end.day.toString().padLeft(2, '0')}.${end.month.toString().padLeft(2, '0')}.${end.year}';
-    final base = 'Z: $count tank. | ${dist.toStringAsFixed(0)} km | $fStart – $fEnd';
-    return ins ? 'Brak pełnej historii – $base' : base;
-  }
-}
-
-// ==========================================
-// 3. INTERFEJS UŻYTKOWNIKA I APLIKACJA
-// ==========================================
-
 class FuelApp extends StatelessWidget {
   const FuelApp({super.key});
 
@@ -378,12 +153,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entries = [];
   bool _isScanning = false;
   bool _isLoading = true;
+  DateTimeRange? _selectedDateRange;
   late TabController _tabController;
 
-  // Stany dla filtrów zakładkowych
-  FuelFilterState _globalFilterState = FuelFilterState();
-
-  // Stany dla zakładki wykresów
+  // Stany dla wykresów
   FuelType _chartFuelType = FuelType.lpg;
   DateTimeRange? _chartDateRange;
 
@@ -467,8 +240,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final contents = await file.readAsString();
         final List<dynamic> jsonList = jsonDecode(contents);
         final importedEntries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
-
-        if(!mounted) return;
 
         showDialog(
           context: context,
@@ -606,14 +377,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
 
         if (importedEntries.isEmpty) {
-          if(!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Nie znaleziono poprawnych danych w pliku Excel.')),
           );
           return;
         }
-        
-        if(!mounted) return;
 
         showDialog(
           context: context,
@@ -673,6 +441,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  List<FuelEntry> get _filteredEntries {
+    List<FuelEntry> list = List.from(_entries);
+    if (_selectedDateRange != null) {
+      list = list.where((e) {
+        return e.date.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
+               e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+      }).toList();
+    }
+    list.sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
+  List<FuelEntry> _entriesForType(FuelType type) {
+    return _filteredEntries.where((e) => e.fuelType == type).toList();
+  }
+
+  double _totalCostFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
+
+  double _totalLitersFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
+
   // Uniwersalna metoda obliczania średniego spalania dla dowolnej listy wpisów
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
@@ -709,6 +499,39 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     return null;
+  }
+
+  // Benzyna (PB): średnie spalanie z 5 ostatnich wpisów
+  double? _pbAvgConsumption() {
+    final list = _entriesForType(FuelType.pb);
+    final sorted = List<FuelEntry>.from(list)..sort((a, b) => b.date.compareTo(a.date));
+    final last5 = sorted.take(5).toList();
+    return _calculateConsumptionForList(last5);
+  }
+
+  // LPG: średnie spalanie z ostatnich 6 miesięcy
+  double? _lpgAvgConsumption() {
+    final list = _entriesForType(FuelType.lpg);
+    final now = DateTime.now();
+    final sixMonthsAgo = DateTime(now.year, now.month - 6, now.day);
+    final filtered = list.where((e) => e.date.isAfter(sixMonthsAgo) || e.date.isAtSameMomentAs(sixMonthsAgo)).toList();
+    return _calculateConsumptionForList(filtered);
+  }
+
+  Future<void> _selectDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: _selectedDateRange,
+    );
+    if (picked != null) {
+      setState(() => _selectedDateRange = picked);
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() => _selectedDateRange = null);
   }
 
   void _deleteEntry(FuelEntry entry) {
@@ -1018,7 +841,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _exportToExcel() async {
-    if (_entries.isEmpty) {
+    if (_filteredEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Brak danych do wyeksportowania.')),
       );
@@ -1034,7 +857,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       void createSheetForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
-        final list = _entries.where((e) => e.fuelType == type).toList(); 
+        final list = _entriesForType(type); 
 
         sheetObject.appendRow([
           'Data',
@@ -1055,6 +878,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
           ]);
         }
+
+        double totalCost = _totalCostFor(type);
+        double totalLiters = _totalLitersFor(type);
+        double? avgCons = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
+
+        sheetObject.appendRow([]);
+        sheetObject.appendRow([
+          'PODSUMOWANIE',
+          '-',
+          '-',
+          double.parse(totalCost.toStringAsFixed(2)),
+          double.parse(totalLiters.toStringAsFixed(2)),
+          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
+        ]);
       }
 
       createSheetForType('LPG', FuelType.lpg);
@@ -1072,7 +909,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ..createSync(recursive: true)
           ..writeAsBytesSync(fileBytes);
         
-        if(!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
         await Share.shareXFiles(
@@ -1167,6 +1003,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.date_range),
+            tooltip: 'Filtruj daty',
+            onPressed: _selectDateRange,
+          ),
+          if (_selectedDateRange != null)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: 'Wyczyść filtr dat',
+              onPressed: _clearDateFilter,
+            ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'export_excel') {
@@ -1217,65 +1064,53 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZINTEGROWANA ZAKŁADKA WYŚWIETLAJĄCA PALIWA ---
   Widget _buildFuelTab(FuelType type) {
-    final allTypeEntries = _entries.where((e) => e.fuelType == type).toList();
-    final result = FuelFilterService.processEntries(
-      allTypeEntries, 
-      _globalFilterState, 
-      _calculateConsumptionForList
-    );
-    
-    // Lista wyświetlana chronologicznie malejąco (najnowsze na górze)
-    final entries = List<FuelEntry>.from(result.filteredEntries)..sort((a, b) => b.date.compareTo(a.date));
-
-    final theme = Theme.of(context);
+    final entries = _entriesForType(type);
+    final avgConsumption = type == FuelType.pb ? _pbAvgConsumption() : _lpgAvgConsumption();
+    final statTitle = type == FuelType.pb 
+        ? 'Średnie spalanie (5 ostatnich wpisów)' 
+        : 'Średnie spalanie (ostatnie 6 miesięcy)';
 
     return Column(
       children: [
-        FuelFilterWidget(
-          filterState: _globalFilterState,
-          filterResult: result,
-          onFilterChanged: (newState) => setState(() => _globalFilterState = newState),
-        ),
-        const Divider(height: 1),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-          color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Śr. spalanie',
-                  result.averageConsumption != null ? '${result.averageConsumption!.toStringAsFixed(2)} L' : '---',
-                  Icons.speed,
+        Card(
+          margin: const EdgeInsets.all(12),
+          elevation: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildStatItem(
+                  statTitle,
+                  avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} L/100km' : 'Brak danych',
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildStatCard(
-                  'Dystans',
-                  '${result.totalDistanceKm.toStringAsFixed(0)} km',
-                  Icons.add_road,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildStatCard(
-                  'Zatankowano',
-                  '${result.totalFuelLiters.toStringAsFixed(1)} L',
-                  Icons.local_gas_station,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-        const Divider(height: 1),
+        if (_selectedDateRange != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filtr: ${_selectedDateRange!.start.day}.${_selectedDateRange!.start.month}.${_selectedDateRange!.start.year} - ${_selectedDateRange!.end.day}.${_selectedDateRange!.end.month}.${_selectedDateRange!.end.year}',
+                  style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
+                ),
+                TextButton(
+                  onPressed: _clearDateFilter,
+                  child: const Text('Resetuj filtr', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: entries.isEmpty
               ? Center(
                   child: Text(
-                    'Brak wpisów dla ${type.label.toLowerCase()} w tym filtrze.',
+                    'Brak wpisów dla ${type.label.toLowerCase()}',
                     style: const TextStyle(color: Colors.grey),
                   ),
                 )
@@ -1349,28 +1184,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon) {
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade300)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
-        child: Column(
-          children: [
-            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 4),
-            Text(title, style: const TextStyle(fontSize: 10, color: Colors.grey), textAlign: TextAlign.center, maxLines: 1),
-            const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- ZAKŁADKA WYKRESU SPALANIA ---
+  // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE / DOWOLNY ZAKRES) ---
   Widget _buildChartsTab() {
     List<FuelEntry> chartEntries = _entries.where((e) => e.fuelType == _chartFuelType).toList();
     if (_chartDateRange != null) {
@@ -1380,6 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }).toList();
     }
 
+    // Grupuj i oblicz średnie spalanie dla każdego miesiąca
     final Map<String, List<FuelEntry>> monthlyGroups = {};
     for (var entry in chartEntries) {
       final monthKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
@@ -1490,115 +1305,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
   }
-}
 
-// --- WIDŻET FILTROWANIA ---
-class FuelFilterWidget extends StatelessWidget {
-  final FuelFilterState filterState;
-  final FilterResult filterResult;
-  final ValueChanged<FuelFilterState> onFilterChanged;
-
-  const FuelFilterWidget({
-    super.key,
-    required this.filterState,
-    required this.filterResult,
-    required this.onFilterChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _buildStatItem(String title, String value) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 4.0),
-          child: SegmentedButton<FilterMode>(
-            segments: const [
-              ButtonSegment(value: FilterMode.time, label: Text('Czas'), icon: Icon(Icons.calendar_month_outlined)),
-              ButtonSegment(value: FilterMode.refuels, label: Text('Tankowania'), icon: Icon(Icons.local_gas_station_outlined)),
-              ButtonSegment(value: FilterMode.distance, label: Text('Dystans'), icon: Icon(Icons.add_road_outlined)),
-            ],
-            selected: {filterState.mode},
-            onSelectionChanged: (s) => onFilterChanged(filterState.copyWith(mode: s.first)),
-          ),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          textAlign: TextAlign.center,
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-          child: Row(children: _buildChips(context)),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-            decoration: BoxDecoration(
-              color: filterResult.hasInsufficientData 
-                  ? theme.colorScheme.errorContainer.withOpacity(0.4) 
-                  : theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(6.0),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  filterResult.hasInsufficientData ? Icons.warning_amber_rounded : Icons.info_outline, 
-                  size: 14, 
-                  color: filterResult.hasInsufficientData ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    filterResult.infoLabel, 
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: filterResult.hasInsufficientData ? theme.colorScheme.onErrorContainer : theme.colorScheme.onSurfaceVariant, 
-                      fontSize: 11
-                    )
-                  ),
-                ),
-              ],
-            ),
-          ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ],
-    );
-  }
-
-  List<Widget> _buildChips(BuildContext context) {
-    if (filterState.mode == FilterMode.time) {
-      return [
-        _chip(context, 'Ostatni miesiąc', filterState.timeOption == TimeFilterOption.month, () => onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.month))),
-        _chip(context, '3 miesiące', filterState.timeOption == TimeFilterOption.months3, () => onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.months3))),
-        _chip(context, '6 miesięcy', filterState.timeOption == TimeFilterOption.months6, () => onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.months6))),
-        _chip(context, 'Bieżący rok', filterState.timeOption == TimeFilterOption.currentYear, () => onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.currentYear))),
-        _chip(context, 'Wszystko', filterState.timeOption == TimeFilterOption.all, () => onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.all))),
-        _chip(context, 'Własny zakres...', filterState.timeOption == TimeFilterOption.custom, () async {
-          final range = await showDateRangePicker(context: context, firstDate: DateTime(2000), lastDate: DateTime.now(), initialDateRange: filterState.customDateRange);
-          if (range != null) onFilterChanged(filterState.copyWith(timeOption: TimeFilterOption.custom, customDateRange: range));
-        }),
-      ];
-    } else if (filterState.mode == FilterMode.refuels) {
-      return RefuelsFilterOption.values.map((opt) => _chip(context, 'Ostatnie ${opt.count} tankowań', filterState.refuelsOption == opt, () => onFilterChanged(filterState.copyWith(refuelsOption: opt)))).toList();
-    } else {
-      return DistanceFilterOption.values.map((opt) => _chip(context, 'Ostatnie ${opt.kilometers} km', filterState.distanceOption == opt, () => onFilterChanged(filterState.copyWith(distanceOption: opt)))).toList();
-    }
-  }
-
-  Widget _chip(BuildContext context, String label, bool isSelected, VoidCallback onSelected) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: ChoiceChip(
-        label: Text(label, style: const TextStyle(fontSize: 12)), 
-        selected: isSelected, 
-        onSelected: (val) { if (val) onSelected(); }
-      ),
     );
   }
 }
 
 // --- CUSTOM PAINTER DLA WYKRESU SŁUPKOWEGO ---
 class MonthlyChartPainter extends CustomPainter {
-  final Map<String, double> monthlyData; 
+  final Map<String, double> monthlyData; // klucz "YYYY-MM" -> wartość spalania
 
   MonthlyChartPainter(this.monthlyData);
 
@@ -1615,7 +1344,7 @@ class MonthlyChartPainter extends CustomPainter {
       if (val > maxVal) maxVal = val;
     }
     if (maxVal == 0) maxVal = 10;
-    maxVal = maxVal * 1.25; 
+    maxVal = maxVal * 1.25; // margines górny
 
     final double chartWidth = size.width - 40;
     final double chartHeight = size.height - 40;
@@ -1627,6 +1356,7 @@ class MonthlyChartPainter extends CustomPainter {
       ..color = Colors.grey.shade300
       ..strokeWidth = 1;
 
+    // Oś X
     canvas.drawLine(Offset(30, chartHeight), Offset(size.width - 10, chartHeight), axisPaint);
 
     for (int i = 0; i < count; i++) {
@@ -1637,10 +1367,12 @@ class MonthlyChartPainter extends CustomPainter {
       final double x = 35 + i * (barWidth + spacing);
       final double y = chartHeight - barHeight;
 
+      // Słupek
       paint.color = Colors.teal.shade400;
       final rect = Rect.fromLTWH(x, y, barWidth, barHeight);
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
 
+      // Tekst wartości nad słupkiem
       final textSpanVal = TextSpan(
         text: val.toStringAsFixed(1),
         style: const TextStyle(fontSize: 10, color: Colors.black87),
@@ -1649,6 +1381,7 @@ class MonthlyChartPainter extends CustomPainter {
       tpVal.layout();
       tpVal.paint(canvas, Offset(x + (barWidth - tpVal.width) / 2, y - 14));
 
+      // Etykieta miesiąca pod słupkiem (np. "05.26")
       final parts = key.split('-');
       final label = '${parts[1]}.${parts[0].substring(2)}';
       final textSpanLabel = TextSpan(
