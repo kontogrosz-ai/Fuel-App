@@ -156,10 +156,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   DateTimeRange? _selectedDateRange;
   late TabController _tabController;
 
+  // Stany dla wykresów
+  FuelType _chartFuelType = FuelType.lpg;
+  DateTimeRange? _chartDateRange;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
     _loadEntriesFromFile();
   }
 
@@ -995,6 +999,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           tabs: const [
             Tab(text: 'LPG', icon: Icon(Icons.propane_tank)),
             Tab(text: 'Benzyna (PB)', icon: Icon(Icons.local_gas_station)),
+            Tab(text: 'Wykresy', icon: Icon(Icons.bar_chart)),
           ],
         ),
         actions: [
@@ -1048,6 +1053,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   children: [
                     _buildFuelTab(FuelType.lpg),
                     _buildFuelTab(FuelType.pb),
+                    _buildChartsTab(),
                   ],
                 ),
       floatingActionButton: FloatingActionButton(
@@ -1178,6 +1184,128 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE / DOWOLNY ZAKRES) ---
+  Widget _buildChartsTab() {
+    List<FuelEntry> chartEntries = _entries.where((e) => e.fuelType == _chartFuelType).toList();
+    if (_chartDateRange != null) {
+      chartEntries = chartEntries.where((e) {
+        return e.date.isAfter(_chartDateRange!.start.subtract(const Duration(days: 1))) &&
+               e.date.isBefore(_chartDateRange!.end.add(const Duration(days: 1)));
+      }).toList();
+    }
+
+    // Grupuj i oblicz średnie spalanie dla każdego miesiąca
+    final Map<String, List<FuelEntry>> monthlyGroups = {};
+    for (var entry in chartEntries) {
+      final monthKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
+      monthlyGroups.putIfAbsent(monthKey, () => []).add(entry);
+    }
+
+    final Map<String, double> monthlyAverages = {};
+    monthlyGroups.forEach((month, list) {
+      final avg = _calculateConsumptionForList(list);
+      if (avg != null) {
+        monthlyAverages[month] = avg;
+      }
+    });
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SegmentedButton<FuelType>(
+            segments: const [
+              ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+              ButtonSegment(value: FuelType.pb, label: Text('Benzyna (PB)'), icon: Icon(Icons.local_gas_station)),
+            ],
+            selected: {_chartFuelType},
+            onSelectionChanged: (Set<FuelType> newSelection) {
+              setState(() => _chartFuelType = newSelection.first);
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                    initialDateRange: _chartDateRange,
+                  );
+                  if (picked != null) {
+                    setState(() => _chartDateRange = picked);
+                  }
+                },
+                icon: const Icon(Icons.date_range, size: 18),
+                label: Text(_chartDateRange == null
+                    ? 'Wybierz zakres dat'
+                    : '${_chartDateRange!.start.day}.${_chartDateRange!.start.month}.${_chartDateRange!.start.year} - ${_chartDateRange!.end.day}.${_chartDateRange!.end.month}.${_chartDateRange!.end.year}'),
+              ),
+              if (_chartDateRange != null)
+                TextButton(
+                  onPressed: () => setState(() => _chartDateRange = null),
+                  child: const Text('Resetuj zakres'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Średnie miesięczne spalanie (${_chartFuelType.label})',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: monthlyAverages.isEmpty
+                  ? const SizedBox(
+                      height: 200,
+                      child: Center(
+                        child: Text(
+                          'Brak wystarczających danych do wygenerowania wykresu.',
+                          style: TextStyle(color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : SizedBox(
+                      height: 250,
+                      child: CustomPaint(
+                        painter: MonthlyChartPainter(monthlyAverages),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (monthlyAverages.isNotEmpty) ...[
+            const Text(
+              'Szczegóły miesięczne:',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ...monthlyAverages.entries.map((entry) {
+              final parts = entry.key.split('-');
+              final yearMonthStr = '${parts[1]}.${parts[0]}';
+              return ListTile(
+                dense: true,
+                title: Text('Miesiąc: $yearMonthStr'),
+                trailing: Text(
+                  '${entry.value.toStringAsFixed(2)} L/100km',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              );
+            }),
+          ]
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatItem(String title, String value) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1185,6 +1313,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         Text(
           title,
           style: const TextStyle(fontSize: 12, color: Colors.grey),
+          textAlign: TextAlign.center,
         ),
         const SizedBox(height: 4),
         Text(
@@ -1194,4 +1323,77 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ],
     );
   }
+}
+
+// --- CUSTOM PAINTER DLA WYKRESU SŁUPKOWEGO ---
+class MonthlyChartPainter extends CustomPainter {
+  final Map<String, double> monthlyData; // klucz "YYYY-MM" -> wartość spalania
+
+  MonthlyChartPainter(this.monthlyData);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (monthlyData.isEmpty) return;
+
+    final sortedKeys = monthlyData.keys.toList()..sort();
+    final count = sortedKeys.length;
+    if (count == 0) return;
+
+    double maxVal = 0;
+    for (var val in monthlyData.values) {
+      if (val > maxVal) maxVal = val;
+    }
+    if (maxVal == 0) maxVal = 10;
+    maxVal = maxVal * 1.25; // margines górny
+
+    final double chartWidth = size.width - 40;
+    final double chartHeight = size.height - 40;
+    final double barWidth = (chartWidth / count) * 0.55;
+    final double spacing = (chartWidth / count) * 0.45;
+
+    final paint = Paint()..style = PaintingStyle.fill;
+    final axisPaint = Paint()
+      ..color = Colors.grey.shade300
+      ..strokeWidth = 1;
+
+    // Oś X
+    canvas.drawLine(Offset(30, chartHeight), Offset(size.width - 10, chartHeight), axisPaint);
+
+    for (int i = 0; i < count; i++) {
+      final key = sortedKeys[i];
+      final val = monthlyData[key] ?? 0.0;
+
+      final double barHeight = (val / maxVal) * chartHeight;
+      final double x = 35 + i * (barWidth + spacing);
+      final double y = chartHeight - barHeight;
+
+      // Słupek
+      paint.color = Colors.teal.shade400;
+      final rect = Rect.fromLTWH(x, y, barWidth, barHeight);
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
+
+      // Tekst wartości nad słupkiem
+      final textSpanVal = TextSpan(
+        text: val.toStringAsFixed(1),
+        style: const TextStyle(fontSize: 10, color: Colors.black87),
+      );
+      final tpVal = TextPainter(text: textSpanVal, textDirection: TextDirection.ltr);
+      tpVal.layout();
+      tpVal.paint(canvas, Offset(x + (barWidth - tpVal.width) / 2, y - 14));
+
+      // Etykieta miesiąca pod słupkiem (np. "05.26")
+      final parts = key.split('-');
+      final label = '${parts[1]}.${parts[0].substring(2)}';
+      final textSpanLabel = TextSpan(
+        text: label,
+        style: const TextStyle(fontSize: 9, color: Colors.grey),
+      );
+      final tpLabel = TextPainter(text: textSpanLabel, textDirection: TextDirection.ltr);
+      tpLabel.layout();
+      tpLabel.paint(canvas, Offset(x + (barWidth - tpLabel.width) / 2, chartHeight + 6));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
