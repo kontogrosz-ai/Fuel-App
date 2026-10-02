@@ -502,7 +502,7 @@ class FuelEntry {
   FuelEntry({
     String? id,
     required this.fuelType,
-    required this.cost,
+    this.cost = 0.0,
     required this.liters,
     this.odometer,
     this.tripDistance,
@@ -511,7 +511,7 @@ class FuelEntry {
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         date = date ?? DateTime.now();
 
-  double get pricePerLiter => liters > 0 ? cost / liters : 0.0;
+  double get pricePerLiter => 0.0;
 
   double? get singleConsumption {
     if (tripDistance != null && tripDistance! > 0) {
@@ -538,7 +538,7 @@ class FuelEntry {
         (e) => e.name == json['fuelType'],
         orElse: () => FuelType.lpg,
       ),
-      cost: (json['cost'] as num).toDouble(),
+      cost: json['cost'] != null ? (json['cost'] as num).toDouble() : 0.0,
       liters: (json['liters'] as num).toDouble(),
       odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
       tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
@@ -806,22 +806,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               }
             }
 
-            double cost = 0.0;
-            if (row.length > 3 && row[3]?.value != null) {
-              final valStr = row[3]!.value.toString();
-              cost = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
-            }
-
             double liters = 0.0;
             if (row.length > 4 && row[4]?.value != null) {
               final valStr = row[4]!.value.toString();
               liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
-            if (cost > 0 && liters > 0) {
+            if (liters > 0) {
               importedEntries.add(FuelEntry(
                 fuelType: type,
-                cost: cost,
+                cost: 0.0,
                 liters: liters,
                 odometer: odometer,
                 tripDistance: tripDistance,
@@ -872,7 +866,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         e.date.year == entry.date.year &&
                         e.date.month == entry.date.month &&
                         e.date.day == entry.date.day &&
-                        e.cost == entry.cost &&
                         e.liters == entry.liters
                       );
                       if (!exists) {
@@ -907,9 +900,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entriesForType(FuelType type) {
     return _getFilterResultForType(type).filteredEntries;
   }
-
-  double _totalCostFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
 
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
@@ -1032,7 +1022,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     if (!mounted || parsedData == null) return;
     _showEntryFormDialog(
-      initialCost: parsedData['cost'] as double?,
       initialLiters: parsedData['liters'] as double?,
       initialType: parsedData['detectedType'] as FuelType?,
       initialDate: parsedData['date'] as DateTime?,
@@ -1041,7 +1030,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
-    double? detectedCost;
     FuelType detectedType = FuelType.lpg;
     DateTime? detectedDate;
 
@@ -1056,20 +1044,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (litersMatch != null) {
       String rawLiters = litersMatch.group(1)!.replaceAll(',', '.');
       detectedLiters = double.tryParse(rawLiters);
-    }
-
-    final RegExp costRegex = RegExp(r'(?:suma|razem|kwota)\s*[:=]?\s*(\d+[\.,]\d{2})', caseSensitive: false);
-    final costMatch = costRegex.firstMatch(text);
-    if (costMatch != null) {
-      String rawCost = costMatch.group(1)!.replaceAll(',', '.');
-      detectedCost = double.tryParse(rawCost);
-    } else {
-      final RegExp plnRegex = RegExp(r'(\d+[\.,]\d{2})\s*(?:pln|zł)', caseSensitive: false);
-      final plnMatch = plnRegex.firstMatch(text);
-      if (plnMatch != null) {
-        String rawCost = plnMatch.group(1)!.replaceAll(',', '.');
-        detectedCost = double.tryParse(rawCost);
-      }
     }
 
     final regYMD = RegExp(r'\b(20\d{2})[-./](0[1-9]|1[0-2])[-./](0[1-9]|[12]\d|3[01])\b');
@@ -1092,7 +1066,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     return {
-      'cost': detectedCost,
       'liters': detectedLiters,
       'detectedType': detectedType,
       'date': detectedDate,
@@ -1101,16 +1074,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   void _showEntryFormDialog({
     FuelEntry? entryToEdit,
-    double? initialCost,
     double? initialLiters,
     FuelType? initialType,
     DateTime? initialDate,
   }) {
     final bool isEditing = entryToEdit != null;
 
-    final costController = TextEditingController(
-      text: isEditing ? entryToEdit.cost.toStringAsFixed(2) : initialCost?.toStringAsFixed(2) ?? '',
-    );
     final litersController = TextEditingController(
       text: isEditing ? entryToEdit.liters.toStringAsFixed(2) : initialLiters?.toStringAsFixed(2) ?? '',
     );
@@ -1143,12 +1112,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
+          title: Text(isEditing ? 'Edytuj wpis' : (initialLiters != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (!isEditing && initialCost != null)
+                if (!isEditing && initialLiters != null)
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
@@ -1168,7 +1137,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ],
                     ),
                   ),
-                if (!isEditing && initialCost != null) const SizedBox(height: 16),
+                if (!isEditing && initialLiters != null) const SizedBox(height: 16),
 
                 SegmentedButton<FuelType>(
                   segments: const [
@@ -1218,12 +1187,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 const SizedBox(height: 8),
 
                 TextField(
-                  controller: costController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Całkowity koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
-                ),
-                const SizedBox(height: 8),
-                TextField(
                   controller: litersController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(labelText: 'Zatankowane litry (L)*', prefixIcon: Icon(Icons.opacity)),
@@ -1269,15 +1232,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             ElevatedButton(
               onPressed: () {
-                double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
                 double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
 
-                if (cost == null || cost <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Koszt musi być większy od zera.')),
-                  );
-                  return;
-                }
                 if (liters == null || liters <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Liczba litrów musi być większa od zera.')),
@@ -1319,7 +1275,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 final newEntry = FuelEntry(
                   id: isEditing ? entryToEdit.id : null,
                   fuelType: selectedType,
-                  cost: cost,
+                  cost: 0.0,
                   liters: liters,
                   odometer: odo,
                   tripDistance: trip,
@@ -1346,7 +1302,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
       ),
     ).whenComplete(() {
-      costController.dispose();
       litersController.dispose();
       tripController.dispose();
       odometerController.dispose();
@@ -1395,7 +1350,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ]);
         }
 
-        double totalCost = _totalCostFor(type);
         double totalLiters = _totalLitersFor(type);
         double? avgCons = _calculateConsumptionForList(list);
 
@@ -1404,7 +1358,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           'PODSUMOWANIE',
           '-',
           '-',
-          double.parse(totalCost.toStringAsFixed(2)),
+          0.0,
           double.parse(totalLiters.toStringAsFixed(2)),
           '-',
           avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
@@ -1680,7 +1634,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                           ),
                           title: Text(
-                            '${entry.cost.toStringAsFixed(2)} PLN (${entry.liters.toStringAsFixed(2)} L)',
+                            'Zatankowano: ${entry.liters.toStringAsFixed(2)} L',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
