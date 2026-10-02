@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Automatyczny backup sprawdzany przy każdym uruchomieniu aplikacji
+  // Automatyczny backup sprawdzany przy każdym uruchomieniu aplikacji[cite: 2]
   await _checkAndPerformMonthlyBackup();
 
   runApp(const FuelApp());
@@ -79,6 +79,7 @@ class FuelEntry {
   final double? odometer;
   final double? tripDistance;
   final DateTime date;
+  final bool isFullTank; // Nowe pole rozróżniające tankowanie do pełna i częściowe
 
   FuelEntry({
     String? id,
@@ -88,6 +89,7 @@ class FuelEntry {
     this.odometer,
     this.tripDistance,
     DateTime? date,
+    this.isFullTank = true, // Domyślnie każde tankowanie jest pełnym bakiem
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         date = date ?? DateTime.now();
 
@@ -108,6 +110,7 @@ class FuelEntry {
         'odometer': odometer,
         'tripDistance': tripDistance,
         'date': date.toIso8601String(),
+        'isFullTank': isFullTank,
       };
 
   factory FuelEntry.fromJson(Map<String, dynamic> json) {
@@ -122,6 +125,7 @@ class FuelEntry {
       odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
       tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
       date: DateTime.parse(json['date']),
+      isFullTank: json['isFullTank'] as bool? ?? true, // Zabezpieczenie dla starych plików JSON
     );
   }
 }
@@ -156,7 +160,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   DateTimeRange? _selectedDateRange;
   late TabController _tabController;
 
-  // Stany dla wykresów
   FuelType _chartFuelType = FuelType.lpg;
   DateTimeRange? _chartDateRange;
 
@@ -241,6 +244,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final List<dynamic> jsonList = jsonDecode(contents);
         final importedEntries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
 
+        if(!mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -363,6 +367,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
+            // Domyślnie z Excela przyjmujemy tankowanie pełne
             if (cost > 0 && liters > 0) {
               importedEntries.add(FuelEntry(
                 fuelType: type,
@@ -371,18 +376,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 odometer: odometer,
                 tripDistance: tripDistance,
                 date: entryDate,
+                isFullTank: true,
               ));
             }
           }
         }
 
         if (importedEntries.isEmpty) {
+          if(!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Nie znaleziono poprawnych danych w pliku Excel.')),
           );
           return;
         }
 
+        if(!mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -463,39 +471,69 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
-  // Uniwersalna metoda obliczania średniego spalania dla dowolnej listy wpisów
+  // --- INTELIGENTNA LOGIKA OBCZYSZCZANIA I CYKLI POMIAROWYCH ---
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
 
+    // 1. Jeśli wpisy posiadają wpisany dystans odcinka, używamy go priorytetowo
     double totalDistance = 0.0;
     double totalLitersUsed = 0.0;
+    bool hasTrip = false;
 
     for (var entry in list) {
       if (entry.tripDistance != null && entry.tripDistance! > 0) {
         totalDistance += entry.tripDistance!;
         totalLitersUsed += entry.liters;
+        hasTrip = true;
       }
     }
 
-    if (totalDistance > 0 && totalLitersUsed > 0) {
+    if (hasTrip && totalDistance > 0 && totalLitersUsed > 0) {
       return (totalLitersUsed / totalDistance) * 100;
     }
 
+    // 2. Obliczenia oparte o stan licznika (odometer) z uwzględnieniem cykli (pełny -> częściowe -> pełny)
     final listWithOdo = list.where((e) => e.odometer != null).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
-      
-    if (listWithOdo.length >= 2) {
-      final newest = listWithOdo.first;
-      final oldest = listWithOdo.last;
-      double odoDiff = newest.odometer! - oldest.odometer!;
+      ..sort((a, b) => a.date.compareTo(b.date)); // od najstarszego do najnowszego
 
-      if (odoDiff > 0) {
-        double litersDrawn = 0.0;
-        for (int i = 0; i < listWithOdo.length - 1; i++) {
-          litersDrawn += listWithOdo[i].liters;
+    if (listWithOdo.length < 2) return null;
+
+    double cumulativeOdoDiff = 0.0;
+    double cumulativeLiters = 0.0;
+    int validCyclesCount = 0;
+
+    int startIndex = 0;
+    for (int i = 1; i < listWithOdo.length; i++) {
+      // Zamknięcie cyklu następuje przy tankowaniu do pełna
+      if (listWithOdo[i].isFullTank) {
+        double odoDiff = listWithOdo[i].odometer! - listWithOdo[startIndex].odometer!;
+        if (odoDiff > 0) {
+          double litersInCycle = 0.0;
+          for (int j = startIndex + 1; j <= i; j++) {
+            litersInCycle += listWithOdo[j].liters;
+          }
+          cumulativeOdoDiff += odoDiff;
+          cumulativeLiters += litersInCycle;
+          validCyclesCount++;
         }
-        return (litersDrawn / odoDiff) * 100;
+        startIndex = i;
       }
+    }
+
+    if (validCyclesCount > 0 && cumulativeOdoDiff > 0 && cumulativeLiters > 0) {
+      return (cumulativeLiters / cumulativeOdoDiff) * 100;
+    }
+
+    // Fallback do metody liniowej (między skrajnymi licznikami)
+    final newest = listWithOdo.last;
+    final oldest = listWithOdo.first;
+    double odoDiff = newest.odometer! - oldest.odometer!;
+    if (odoDiff > 0) {
+      double litersDrawn = 0.0;
+      for (int i = 0; i < listWithOdo.length - 1; i++) {
+        litersDrawn += listWithOdo[i].liters;
+      }
+      return (litersDrawn / odoDiff) * 100;
     }
 
     return null;
@@ -670,6 +708,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
+    bool isFullTank = isEditing ? entryToEdit.isFullTank : true; // Nowy stan przełącznika
 
     final sortedEntries = List<FuelEntry>.from(_entries)..sort((a, b) => b.date.compareTo(a.date));
     final entriesWithOdo = sortedEntries.where((e) => e.odometer != null).toList();
@@ -733,6 +772,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   },
                   icon: const Icon(Icons.calendar_today, size: 18),
                   label: Text('Data: ${selectedDate.day}.${selectedDate.month}.${selectedDate.year}'),
+                ),
+                const SizedBox(height: 8),
+
+                // Przełącznik tankowania do pełna / częściowego
+                SwitchListTile(
+                  title: const Text('Tankowanie do pełna', style: TextStyle(fontSize: 14)),
+                  subtitle: Text(
+                    isFullTank ? 'Pełny bak (zamknięcie cyklu)' : 'Częściowe (dolewka / nie do pełna)',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  value: isFullTank,
+                  onChanged: (bool value) {
+                    setDialogState(() => isFullTank = value);
+                  },
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 8),
 
@@ -817,6 +872,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   odometer: odo,
                   tripDistance: trip,
                   date: selectedDate,
+                  isFullTank: isFullTank, // Przekazanie stanu przełącznika
                 );
 
                 setState(() {
@@ -865,6 +921,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           'Stan licznika (km)',
           'Koszt (PLN)',
           'Paliwo (L)',
+          'Pełny bak?',
           'Spalanie (L/100km)',
         ]);
 
@@ -875,6 +932,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             entry.odometer ?? '-',
             entry.cost,
             entry.liters,
+            entry.isFullTank ? 'Tak' : 'Nie',
             entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
           ]);
         }
@@ -890,6 +948,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           '-',
           double.parse(totalCost.toStringAsFixed(2)),
           double.parse(totalLiters.toStringAsFixed(2)),
+          '-',
           avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
         ]);
       }
@@ -909,6 +968,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ..createSync(recursive: true)
           ..writeAsBytesSync(fileBytes);
         
+        if(!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
         await Share.shareXFiles(
@@ -1165,11 +1225,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                           subtitle: Text(
                             'Data: ${entry.date.day}.${entry.date.month}.${entry.date.year}'
+                            '${!entry.isFullTank ? ' • [Nie do pełna]' : ''}' // Oznaczenie częściowego tankowania
                             '${entry.tripDistance != null ? ' • Dystans: ${entry.tripDistance} km' : ''}'
                             '${entry.odometer != null ? ' • Licznik: ${entry.odometer} km' : ''}'
                             '${entry.singleConsumption != null ? '\nSpalanie: ${entry.singleConsumption!.toStringAsFixed(2)} L/100km' : ''}',
                           ),
-                          isThreeLine: entry.singleConsumption != null || entry.odometer != null,
+                          isThreeLine: entry.singleConsumption != null || entry.odometer != null || !entry.isFullTank,
                           trailing: IconButton(
                             icon: const Icon(Icons.edit, color: Colors.grey),
                             onPressed: () => _showEntryFormDialog(entryToEdit: entry),
@@ -1184,7 +1245,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE / DOWOLNY ZAKRES) ---
+  // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE) ---
   Widget _buildChartsTab() {
     List<FuelEntry> chartEntries = _entries.where((e) => e.fuelType == _chartFuelType).toList();
     if (_chartDateRange != null) {
@@ -1194,7 +1255,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }).toList();
     }
 
-    // Grupuj i oblicz średnie spalanie dla każdego miesiąca
     final Map<String, List<FuelEntry>> monthlyGroups = {};
     for (var entry in chartEntries) {
       final monthKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
@@ -1327,7 +1387,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
 // --- CUSTOM PAINTER DLA WYKRESU SŁUPKOWEGO ---
 class MonthlyChartPainter extends CustomPainter {
-  final Map<String, double> monthlyData; // klucz "YYYY-MM" -> wartość spalania
+  final Map<String, double> monthlyData;
 
   MonthlyChartPainter(this.monthlyData);
 
@@ -1344,7 +1404,7 @@ class MonthlyChartPainter extends CustomPainter {
       if (val > maxVal) maxVal = val;
     }
     if (maxVal == 0) maxVal = 10;
-    maxVal = maxVal * 1.25; // margines górny
+    maxVal = maxVal * 1.25;
 
     final double chartWidth = size.width - 40;
     final double chartHeight = size.height - 40;
@@ -1356,7 +1416,6 @@ class MonthlyChartPainter extends CustomPainter {
       ..color = Colors.grey.shade300
       ..strokeWidth = 1;
 
-    // Oś X
     canvas.drawLine(Offset(30, chartHeight), Offset(size.width - 10, chartHeight), axisPaint);
 
     for (int i = 0; i < count; i++) {
@@ -1367,12 +1426,10 @@ class MonthlyChartPainter extends CustomPainter {
       final double x = 35 + i * (barWidth + spacing);
       final double y = chartHeight - barHeight;
 
-      // Słupek
       paint.color = Colors.teal.shade400;
       final rect = Rect.fromLTWH(x, y, barWidth, barHeight);
       canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), paint);
 
-      // Tekst wartości nad słupkiem
       final textSpanVal = TextSpan(
         text: val.toStringAsFixed(1),
         style: const TextStyle(fontSize: 10, color: Colors.black87),
@@ -1381,7 +1438,6 @@ class MonthlyChartPainter extends CustomPainter {
       tpVal.layout();
       tpVal.paint(canvas, Offset(x + (barWidth - tpVal.width) / 2, y - 14));
 
-      // Etykieta miesiąca pod słupkiem (np. "05.26")
       final parts = key.split('-');
       final label = '${parts[1]}.${parts[0].substring(2)}';
       final textSpanLabel = TextSpan(
