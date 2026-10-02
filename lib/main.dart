@@ -15,7 +15,7 @@ void main() async {
   // Automatyczny backup sprawdzany przy każdym uruchomieniu aplikacji
   await _checkAndPerformMonthlyBackup();
 
-  runApp(const FuelTrackerApp());
+  runApp(const FuelApp());
 }
 
 // --- AUTOMATYCZNY BACKUP RAZ W MIESIĄCU ---
@@ -46,7 +46,7 @@ Future<void> _checkAndPerformMonthlyBackup() async {
         }
 
         final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-        final backupFile = File('${backupDir.path}/tanker_backup_$dateStr.json');
+        final backupFile = File('${backupDir.path}/fuel_app_backup_$dateStr.json');
         
         await file.copy(backupFile.path);
         await prefs.setString('last_auto_backup', now.toIso8601String());
@@ -126,8 +126,8 @@ class FuelEntry {
   }
 }
 
-class FuelTrackerApp extends StatelessWidget {
-  const FuelTrackerApp({super.key});
+class FuelApp extends StatelessWidget {
+  const FuelApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -159,7 +159,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    // Ustawiono initialIndex na 0, ponieważ pierwszą zakładką jest LPG
     _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
     _loadEntriesFromFile();
   }
@@ -204,7 +203,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // --- RĘCZNY EKSPORT I IMPORT JSON ---
   Future<void> _exportJson() async {
     try {
       final file = await _getJsonFile();
@@ -670,7 +668,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- EKSPORT DO EXCELA ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -939,7 +936,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-      // --- BOCZNE MENU (DRAWER) ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -1005,7 +1001,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
                             InkWell(
-                              onTab: _clearDateFilter,
+                              onTap: _clearDateFilter,
                               child: const Icon(Icons.close, size: 20),
                             )
                           ],
