@@ -159,7 +159,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
+    // Ustawiono initialIndex na 0, ponieważ pierwszą zakładką jest teraz LPG
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
     _loadEntriesFromFile();
   }
 
@@ -538,8 +539,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                 SegmentedButton<FuelType>(
                   segments: const [
-                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
                     ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
                   ],
                   selected: {selectedType},
                   onSelectionChanged: (Set<FuelType> newSelection) {
@@ -724,8 +725,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      createSheetForType('Benzyna (PB)', FuelType.pb);
+      // Kolejność arkuszy w Excelu również zgodna z nową koncepcją
       createSheetForType('LPG', FuelType.lpg);
+      createSheetForType('Benzyna (PB)', FuelType.pb);
 
       excel.delete('Sheet1'); 
 
@@ -744,7 +746,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         await Share.shareXFiles(
           [XFile(filePath)], 
           subject: 'Raport z aplikacji Fuel Tracker',
-          text: 'Rozdzielony raport zużycia paliwa PB i LPG z aplikacji.',
+          text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
         );
       }
     } catch (e) {
@@ -930,11 +932,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: _selectDateRange,
           ),
         ],
+        // Zmieniona kolejność w TabBar: najpierw LPG, potem Benzyna (PB)
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(icon: Icon(Icons.local_gas_station), text: 'Benzyna (PB)'),
             Tab(icon: Icon(Icons.propane_tank), text: 'LPG'),
+            Tab(icon: Icon(Icons.local_gas_station), text: 'Benzyna (PB)'),
           ],
         ),
       ),
@@ -1013,9 +1016,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     Expanded(
                       child: TabBarView(
                         controller: _tabController,
+                        // Zmieniona kolejność widoków zakładek: najpierw LPG, potem PB
                         children: [
-                          _buildFuelTab(FuelType.pb),
                           _buildFuelTab(FuelType.lpg),
+                          _buildFuelTab(FuelType.pb),
                         ],
                       ),
                     ),
