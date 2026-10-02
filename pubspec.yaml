@@ -10,13 +10,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.6
-  
+  cupertino_icons: ^1.0.8
+
   # Integracja mowy i plików
-  speech_to_text: ^7.3.0
+  speech_to_text: ^7.0.0
   file_picker: ^8.0.0
   path_provider: ^2.1.2
-  share_plus: ^8.0.2
+  share_plus: ^8.0.0
   shared_preferences: ^2.2.2
 
   # OCR i multimedia
@@ -24,7 +24,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.11.0
 
   # Eksport danych
-  excel: 2.1.0 # Zablokowana wersja unika konfliktów typów z Flutterem
+  excel: ^4.0.0
 
 dev_dependencies:
   flutter_test:
