@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'io';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -259,7 +259,7 @@ FilterResult applyFuelFilter(
   );
 }
 
-// --- KROK 3: KOMPONENT UI FILTRA (ORYGINALNY SegmentedButton) ---
+// --- KROK 3: KOMPONENT UI FILTRA (UKŁAD 2x2) ---
 class FuelFilterWidget extends StatefulWidget {
   final FuelFilterState initialFilterState;
   final ValueChanged<FuelFilterState> onFilterChanged;
@@ -306,19 +306,41 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SegmentedButton<FilterMainMode>(
-              segments: const [
-                ButtonSegment(value: FilterMainMode.time, label: Text('Czas'), icon: Icon(Icons.access_time, size: 16)),
-                ButtonSegment(value: FilterMainMode.count, label: Text('Ilość'), icon: Icon(Icons.format_list_numbered, size: 16)),
-                ButtonSegment(value: FilterMainMode.distance, label: Text('Dystans'), icon: Icon(Icons.map, size: 16)),
-                ButtonSegment(value: FilterMainMode.custom, label: Text('Własny'), icon: Icon(Icons.date_range, size: 16)),
+            // Układ 2x2 dla głównych trybów filtrowania
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 2.8,
+              children: [
+                _buildFilterTile(
+                  mode: FilterMainMode.time,
+                  label: 'Czas',
+                  icon: Icons.access_time,
+                ),
+                _buildFilterTile(
+                  mode: FilterMainMode.count,
+                  label: 'Ilość',
+                  icon: Icons.format_list_numbered,
+                ),
+                _buildFilterTile(
+                  mode: FilterMainMode.distance,
+                  label: 'Dystans',
+                  icon: Icons.map,
+                ),
+                _buildFilterTile(
+                  mode: FilterMainMode.custom,
+                  label: 'Własny',
+                  icon: Icons.date_range,
+                ),
               ],
-              selected: {_currentFilter.mainMode},
-              onSelectionChanged: (Set<FilterMainMode> selection) {
-                _update(_currentFilter.copyWith(mainMode: selection.first));
-              },
             ),
             const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            // Sub-opcje przewijane w poziomie
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -326,6 +348,52 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterTile({
+    required FilterMainMode mode,
+    required String label,
+    required IconData icon,
+  }) {
+    final isSelected = _currentFilter.mainMode == mode;
+    final theme = Theme.of(context);
+
+    return Material(
+      color: isSelected
+          ? theme.colorScheme.primaryContainer
+          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () => _update(_currentFilter.copyWith(mainMode: mode)),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: isSelected
+                    ? theme.colorScheme.onPrimaryContainer
+                    : theme.colorScheme.onSurface,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
