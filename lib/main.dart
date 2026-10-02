@@ -132,7 +132,7 @@ class FuelTrackerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Fuel Tracker App',
+      title: 'Fuel App',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
@@ -159,7 +159,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    // Ustawiono initialIndex na 0, ponieważ pierwszą zakładką jest teraz LPG
+    // Ustawiono initialIndex na 0, ponieważ pierwszą zakładką jest LPG
     _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
     _loadEntriesFromFile();
   }
@@ -216,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
       await Share.shareXFiles(
         [XFile(file.path)],
-        subject: 'Kopia zapasowa - Fuel Tracker',
+        subject: 'Kopia zapasowa - Fuel App',
         text: 'Plik kopii zapasowej bazy danych JSON.',
       );
     } catch (e) {
@@ -670,7 +670,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- EKSPORT DO EXCELA (ZGODNY Z WERSJĄ 2.1.0) ---
+  // --- EKSPORT DO EXCELA ---
   Future<void> _exportToExcel() async {
     if (_filteredEntries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -725,7 +725,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      // Kolejność arkuszy w Excelu również zgodna z nową koncepcją
       createSheetForType('LPG', FuelType.lpg);
       createSheetForType('Benzyna (PB)', FuelType.pb);
 
@@ -745,7 +744,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         
         await Share.shareXFiles(
           [XFile(filePath)], 
-          subject: 'Raport z aplikacji Fuel Tracker',
+          subject: 'Raport z aplikacji Fuel App',
           text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
         );
       }
@@ -924,7 +923,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fuel Tracker App'),
+        title: const Text('Fuel App'),
         actions: [
           IconButton(
             icon: const Icon(Icons.date_range),
@@ -932,7 +931,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: _selectDateRange,
           ),
         ],
-        // Zmieniona kolejność w TabBar: najpierw LPG, potem Benzyna (PB)
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -941,7 +939,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-      // --- BOCZNE MENU (DRAWER) Z OPCJAMI EKSPORTU I IMPORTU ---
+      // --- BOCZNE MENU (DRAWER) ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -954,7 +952,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 children: [
                   Icon(Icons.local_gas_station, color: Colors.white, size: 40),
                   SizedBox(height: 10),
-                  Text('Fuel Tracker', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('Fuel App', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                   Text('Zarządzanie paliwem i kopie zapasowe', style: TextStyle(color: Colors.white70, fontSize: 12)),
                 ],
               ),
@@ -1007,7 +1005,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
                             InkWell(
-                              onTap: _clearDateFilter,
+                              onTab: _clearDateFilter,
                               child: const Icon(Icons.close, size: 20),
                             )
                           ],
@@ -1016,7 +1014,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     Expanded(
                       child: TabBarView(
                         controller: _tabController,
-                        // Zmieniona kolejność widoków zakładek: najpierw LPG, potem PB
                         children: [
                           _buildFuelTab(FuelType.lpg),
                           _buildFuelTab(FuelType.pb),
