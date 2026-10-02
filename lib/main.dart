@@ -46,8 +46,6 @@ Future<void> _checkAndPerformMonthlyBackup() async {
       debugPrint('Automatyczny miesięczny backup wykonany pomyślnie.');
     }
 
-    // Zapobiega ponawianiu tej samej kontroli przy każdym uruchomieniu,
-    // również zanim powstanie pierwszy plik danych.
     await prefs.setString('last_auto_backup', now.toIso8601String());
   } catch (error, stackTrace) {
     debugPrint('Błąd automatycznego backupu: $error');
@@ -513,7 +511,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   FuelType _chartFuelType = FuelType.lpg;
   
-  // Stan zaawansowanego filtra
   FuelFilterState _fuelFilterState = FuelFilterState();
 
   @override
@@ -523,11 +520,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _initialize();
   }
 
-
   Future<void> _initialize() async {
     await _loadEntriesFromFile();
     await _checkAndPerformMonthlyBackup();
   }
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -834,7 +831,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // --- INTEGRACJA FILTRA Z DANYMI ---
   FilterResult _getFilterResultForType(FuelType type) {
     final typeEntries = _entries.where((e) => e.fuelType == type).toList();
     return applyFuelFilter(typeEntries, _fuelFilterState);
@@ -850,7 +846,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   double _totalLitersFor(FuelType type) =>
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
-  // --- INTELIGENTNA LOGIKA OBCZYSZCZANIA I CYKLI POMIAROWYCH ---
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
 
@@ -1187,7 +1182,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'Stan licznika (km)',
-                    hintText: (!isEditing && lastOdometer != null) ? 'Ostatnio: ${lastOdometer.toStringAsFixed(0)} km' : 'np. 150000 km',
+                    // POPRAWKA: Użycie lokalnej stałej zamiast bezpośredniego dostępu do modyfikowalnej zmiennej
+                    hintText: (() {
+                      final localOdo = lastOdometer;
+                      return (!isEditing && localOdo != null)
+                          ? 'Ostatnio: ${localOdo.toStringAsFixed(0)} km'
+                          : 'np. 150000 km';
+                    })(),
                     prefixIcon: const Icon(Icons.speed),
                   ),
                 ),
@@ -1236,14 +1237,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   );
                   return;
                 }
+                
                 lastOdometer = previousOdometer(selectedDate);
+                // POPRAWKA: Przypisanie do zmiennej lokalnej typu final w celu bezpiecznego promowania typów
+                final localOdo = lastOdometer;
 
-                if (odo == null && trip != null && lastOdometer != null) {
-                  odo = lastOdometer + trip;
+                if (odo == null && trip != null && localOdo != null) {
+                  odo = localOdo + trip;
                 }
 
-                if (trip == null && odo != null && lastOdometer != null && odo > lastOdometer) {
-                  trip = odo - lastOdometer;
+                if (trip == null && odo != null && localOdo != null && odo > localOdo) {
+                  trip = odo - localOdo;
                 }
 
                 final newEntry = FuelEntry(
@@ -1508,7 +1512,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     return Column(
       children: [
-        // Komponent sterujący filtrowaniem (Czas / Ilość / Dystans / Własny)
         FuelFilterWidget(
           initialFilterState: _fuelFilterState,
           onFilterChanged: (newState) {
@@ -1517,7 +1520,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             });
           },
         ),
-        // Etykieta informacyjna o stanie filtra / ograniczeniach danych
         if (filterResult.infoMessage.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
@@ -1637,7 +1639,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZAKŁADKA WYKRESU SPALANIA (MIESIĘCZNIE) ---
   Widget _buildChartsTab() {
     List<FuelEntry> chartEntries = _entriesForType(_chartFuelType);
 
@@ -1671,7 +1672,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             },
           ),
           const SizedBox(height: 16),
-          // Informacja o aktywnym filtrze globalnym na zakładce wykresów
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -1778,7 +1778,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
-// --- CUSTOM PAINTER DLA WYKRESU SŁUPKOWEGO ---
 class MonthlyChartPainter extends CustomPainter {
   final Map<String, double> monthlyData;
 
