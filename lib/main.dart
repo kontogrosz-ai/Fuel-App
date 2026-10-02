@@ -967,7 +967,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       odometer = double.tryParse(odoMatch.group(1)!.replaceAll(',', '.'));
     }
 
-    // Wyciąganie wartości w przypadku braku słów kluczowych
     if (detectedCost == null || detectedLiters == null) {
       final matches = RegExp(r'\b\d+[\.,]?\d*\b')
           .allMatches(text)
@@ -992,12 +991,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona) ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
+    StateSetter? dialogSetState;
+    String recognizedText = '';
+    
     bool available = await _speech.initialize(
-      onStatus: (val) => debugPrint('onStatus: $val'),
+      onStatus: (val) {
+        debugPrint('onStatus: $val');
+        if (val == 'done' || val == 'notListening') {
+          if (dialogSetState != null) {
+            dialogSetState!(() {
+              _isListening = false;
+            });
+          } else {
+            _isListening = false;
+          }
+        }
+      },
       onError: (val) => debugPrint('onError: $val'),
     );
 
@@ -1009,31 +1022,35 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return;
     }
 
-    String recognizedText = '';
     _isListening = true;
 
+    // Rozpoczynamy nasłuchiwanie przed otwarciem UI, żeby nie uruchamiało się wewnątrz funkcji budującej.
+    _speech.listen(
+      localeId: 'pl_PL',
+      onResult: (val) {
+        if (dialogSetState != null) {
+          dialogSetState!(() {
+            recognizedText = val.recognizedWords;
+          });
+        }
+      },
+    );
+
     if (!mounted) return;
-    showDialog(
+    
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
-          if (_isListening) {
-            _speech.listen(
-              localeId: 'pl_PL',
-              onResult: (val) {
-                setDialogState(() {
-                  recognizedText = val.recognizedWords;
-                });
-              },
-            );
-          }
+          dialogSetState = setDialogState;
+          
           return AlertDialog(
-            title: const Row(
+            title: Row(
               children: [
-                Icon(Icons.mic, color: Colors.red),
-                SizedBox(width: 8),
-                Text('Mów teraz...'),
+                Icon(Icons.mic, color: _isListening ? Colors.red : Colors.grey),
+                const SizedBox(width: 8),
+                Text(_isListening ? 'Mów teraz...' : 'Zakończono'),
               ],
             ),
             content: Column(
@@ -1045,13 +1062,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 16),
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.teal.shade50,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    recognizedText.isEmpty ? 'Słucham...' : recognizedText,
+                    recognizedText.isEmpty 
+                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.') 
+                        : recognizedText,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     textAlign: TextAlign.center,
                   ),
@@ -1092,10 +1112,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           );
         },
       ),
-    ).then((_) {
-      _speech.stop();
-      _isListening = false;
-    });
+    );
+    
+    // Zabezpieczenie po zamknięciu okna.
+    _speech.stop();
+    _isListening = false;
   }
 
   FilterResult _getFilterResultForType(FuelType type) {
