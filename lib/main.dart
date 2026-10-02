@@ -350,7 +350,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
     } else if (_currentFilter.mainMode == FilterMainMode.custom) {
       chips.add(
         ActionChip(
-          icon: const Icon(Icons.calendar_today, size: 16),
+          avatar: const Icon(Icons.calendar_today, size: 16),
           label: Text(_currentFilter.customDateRange == null
               ? 'Wybierz daty z kalendarza'
               : '${_currentFilter.customDateRange!.start.day}.${_currentFilter.customDateRange!.start.month}.${_currentFilter.customDateRange!.start.year} - ${_currentFilter.customDateRange!.end.day}.${_currentFilter.customDateRange!.end.month}.${_currentFilter.customDateRange!.end.year}'),
