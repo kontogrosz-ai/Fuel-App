@@ -1,26 +1,23 @@
 name: fuel_app
-description: Aplikacja do śledzenia zużycia paliwa (LPG i PB) z funkcją OCR.
-publish_to: 'none'
+description: "Aplikacja do zarządzania tankowaniem i spalaniem."
+publish_to: "none" 
 
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  image_picker: ^1.0.7
+  google_mlkit_text_recognition: ^0.13.0
+  excel: ^4.0.3
+  path_provider: ^2.1.2
+  share_plus: ^9.0.0
   file_picker: ^8.0.0
   intl: ^0.19.0
   shared_preferences: ^2.2.2
-
-  image_picker: ^1.0.7
-  google_mlkit_text_recognition: ^0.11.0
-  excel: 2.1.0  # Zablokowana wersja 2.1.0 unikająca konfliktów z klasami Fluttera
-  path_provider: ^2.1.2
-  share_plus: ^8.0.2
-  cupertino_icons: ^1.0.6
-  shared_preferences: ^2.2.2  # Dodane do śledzenia daty ostatniego backupu (miesięczny automatyczny backup)
 
 dev_dependencies:
   flutter_test:
