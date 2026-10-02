@@ -306,7 +306,6 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Układ 2x2 dla głównych trybów filtrowania
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -340,7 +339,6 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 12),
-            // Sub-opcje przewijane w poziomie
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -492,7 +490,6 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
 class FuelEntry {
   final String id;
   final FuelType fuelType;
-  final double cost;
   final double liters;
   final double? odometer;
   final double? tripDistance;
@@ -502,7 +499,6 @@ class FuelEntry {
   FuelEntry({
     String? id,
     required this.fuelType,
-    this.cost = 0.0,
     required this.liters,
     this.odometer,
     this.tripDistance,
@@ -510,8 +506,6 @@ class FuelEntry {
     this.isFullTank = true,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         date = date ?? DateTime.now();
-
-  double get pricePerLiter => 0.0;
 
   double? get singleConsumption {
     if (tripDistance != null && tripDistance! > 0) {
@@ -523,7 +517,6 @@ class FuelEntry {
   Map<String, dynamic> toJson() => {
         'id': id,
         'fuelType': fuelType.name,
-        'cost': cost,
         'liters': liters,
         'odometer': odometer,
         'tripDistance': tripDistance,
@@ -538,7 +531,6 @@ class FuelEntry {
         (e) => e.name == json['fuelType'],
         orElse: () => FuelType.lpg,
       ),
-      cost: json['cost'] != null ? (json['cost'] as num).toDouble() : 0.0,
       liters: (json['liters'] as num).toDouble(),
       odometer: json['odometer'] != null ? (json['odometer'] as num).toDouble() : null,
       tripDistance: json['tripDistance'] != null ? (json['tripDistance'] as num).toDouble() : null,
@@ -578,7 +570,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  
   FuelFilterState _fuelFilterState = FuelFilterState();
 
   @override
@@ -815,7 +806,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             if (liters > 0) {
               importedEntries.add(FuelEntry(
                 fuelType: type,
-                cost: 0.0,
                 liters: liters,
                 odometer: odometer,
                 tripDistance: tripDistance,
@@ -1275,7 +1265,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 final newEntry = FuelEntry(
                   id: isEditing ? entryToEdit.id : null,
                   fuelType: selectedType,
-                  cost: 0.0,
                   liters: liters,
                   odometer: odo,
                   tripDistance: trip,
@@ -1328,11 +1317,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         Sheet sheetObject = excel[sheetName];
         final list = _entriesForType(type); 
 
+        // Nagłówki bez kolumny Koszt
         sheetObject.appendRow([
           'Data',
           'Dystans (km)',
           'Stan licznika (km)',
-          'Koszt (PLN)',
           'Paliwo (L)',
           'Pełny bak?',
           'Spalanie (L/100km)',
@@ -1343,7 +1332,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
             entry.tripDistance ?? '-',
             entry.odometer ?? '-',
-            entry.cost,
             entry.liters,
             entry.isFullTank ? 'Tak' : 'Nie',
             entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
@@ -1358,7 +1346,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           'PODSUMOWANIE',
           '-',
           '-',
-          0.0,
           double.parse(totalLiters.toStringAsFixed(2)),
           '-',
           avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
