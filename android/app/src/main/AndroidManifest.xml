@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.RECOGNIZE_SPEECH"/>
+        </intent>
+    </queries>
+    
+    <application
+        android:label="Aplikacja"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+    </application>
+</manifest>
