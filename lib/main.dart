@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -9,12 +10,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Automatyczny backup sprawdzany przy każdym uruchomieniu aplikacji[cite: 2]
-  await _checkAndPerformMonthlyBackup();
-
   runApp(const FuelApp());
 }
 
@@ -22,39 +19,39 @@ void main() async {
 Future<void> _checkAndPerformMonthlyBackup() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final lastBackupStr = prefs.getString('last_auto_backup');
+    final lastBackupString = prefs.getString('last_auto_backup');
     final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month);
 
-    bool shouldBackup = false;
-    if (lastBackupStr == null) {
-      shouldBackup = true;
-    } else {
-      final lastBackup = DateTime.parse(lastBackupStr);
-      if (now.difference(lastBackup).inDays >= 30) {
-        shouldBackup = true;
-      }
+    DateTime? lastBackup;
+    if (lastBackupString != null) {
+      lastBackup = DateTime.tryParse(lastBackupString);
     }
 
-    if (shouldBackup) {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/Dane_Tankowania.json');
-      
-      if (await file.exists()) {
-        final backupDir = Directory('${directory.path}/backups');
-        if (!await backupDir.exists()) {
-          await backupDir.create(recursive: true);
-        }
+    final shouldBackup = lastBackup == null ||
+        DateTime(lastBackup.year, lastBackup.month).isBefore(currentMonth);
+    if (!shouldBackup) return;
 
-        final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-        final backupFile = File('${backupDir.path}/fuel_app_backup_$dateStr.json');
-        
-        await file.copy(backupFile.path);
-        await prefs.setString('last_auto_backup', now.toIso8601String());
-        debugPrint("Automatyczny miesięczny backup wykonany pomyślnie.");
-      }
+    final directory = await getApplicationDocumentsDirectory();
+    final source = File('${directory.path}/Dane_Tankowania.json');
+
+    if (await source.exists()) {
+      final backupDirectory = Directory('${directory.path}/backups');
+      await backupDirectory.create(recursive: true);
+      final dateText =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      await source.copy(
+        '${backupDirectory.path}/fuel_app_backup_$dateText.json',
+      );
+      debugPrint('Automatyczny miesięczny backup wykonany pomyślnie.');
     }
-  } catch (e) {
-    debugPrint("Błąd automatycznego backupu: $e");
+
+    // Zapobiega ponawianiu tej samej kontroli przy każdym uruchomieniu,
+    // również zanim powstanie pierwszy plik danych.
+    await prefs.setString('last_auto_backup', now.toIso8601String());
+  } catch (error, stackTrace) {
+    debugPrint('Błąd automatycznego backupu: $error');
+    debugPrintStack(stackTrace: stackTrace);
   }
 }
 
@@ -77,20 +74,37 @@ enum TimeFilterOption { month1, months3, months6, year1, all }
 enum CountFilterOption { c5, c10, c20, cAll }
 enum DistanceFilterOption { km500, km1000, km5000, kmAll }
 
+@immutable
 class FuelFilterState {
-  FilterMainMode mainMode;
-  TimeFilterOption timeOption;
-  CountFilterOption countOption;
-  DistanceFilterOption distanceOption;
-  DateTimeRange? customDateRange;
-
-  FuelFilterState({
+  const FuelFilterState({
     this.mainMode = FilterMainMode.time,
     this.timeOption = TimeFilterOption.months6,
     this.countOption = CountFilterOption.c10,
     this.distanceOption = DistanceFilterOption.km1000,
     this.customDateRange,
   });
+
+  final FilterMainMode mainMode;
+  final TimeFilterOption timeOption;
+  final CountFilterOption countOption;
+  final DistanceFilterOption distanceOption;
+  final DateTimeRange? customDateRange;
+
+  FuelFilterState copyWith({
+    FilterMainMode? mainMode,
+    TimeFilterOption? timeOption,
+    CountFilterOption? countOption,
+    DistanceFilterOption? distanceOption,
+    DateTimeRange? customDateRange,
+  }) {
+    return FuelFilterState(
+      mainMode: mainMode ?? this.mainMode,
+      timeOption: timeOption ?? this.timeOption,
+      countOption: countOption ?? this.countOption,
+      distanceOption: distanceOption ?? this.distanceOption,
+      customDateRange: customDateRange ?? this.customDateRange,
+    );
+  }
 }
 
 class FilterResult {
@@ -106,13 +120,33 @@ class FilterResult {
 }
 
 // --- KROK 2: ALGORYTM FILTRUJĄCY DANE ---
-FilterResult applyFuelFilter(List<FuelEntry> allEntries, FuelFilterState filterState) {
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+DateTime _subtractMonths(DateTime value, int months) {
+  final firstDayOfTargetMonth = DateTime(value.year, value.month - months);
+  final lastDay = DateTime(
+    firstDayOfTargetMonth.year,
+    firstDayOfTargetMonth.month + 1,
+    0,
+  ).day;
+  final safeDay = value.day > lastDay ? lastDay : value.day;
+  return DateTime(
+    firstDayOfTargetMonth.year,
+    firstDayOfTargetMonth.month,
+    safeDay,
+  );
+}
+
+FilterResult applyFuelFilter(
+  List<FuelEntry> allEntries,
+  FuelFilterState filterState,
+) {
   final sorted = List<FuelEntry>.from(allEntries)
     ..sort((a, b) => b.date.compareTo(a.date));
-
   if (sorted.isEmpty) {
     return FilterResult(
-      filteredEntries: [],
+      filteredEntries: const [],
       isDataLimited: false,
       infoMessage: 'Brak wpisów w bazie danych.',
     );
@@ -124,19 +158,25 @@ FilterResult applyFuelFilter(List<FuelEntry> allEntries, FuelFilterState filterS
 
   switch (filterState.mainMode) {
     case FilterMainMode.time:
-      final now = DateTime.now();
-      DateTime cutoffDate;
+      final now = _dateOnly(DateTime.now());
+      if (filterState.timeOption == TimeFilterOption.all) {
+        result = sorted;
+        info = 'Filtrowanie: Cała historia czasowa';
+        break;
+      }
+
+      late DateTime cutoffDate;
       switch (filterState.timeOption) {
         case TimeFilterOption.month1:
-          cutoffDate = DateTime(now.year, now.month - 1, now.day);
+          cutoffDate = _subtractMonths(now, 1);
           info = 'Filtrowanie: Ostatni miesiąc';
           break;
         case TimeFilterOption.months3:
-          cutoffDate = DateTime(now.year, now.month - 3, now.day);
+          cutoffDate = _subtractMonths(now, 3);
           info = 'Filtrowanie: Ostatnie 3 miesiące';
           break;
         case TimeFilterOption.months6:
-          cutoffDate = DateTime(now.year, now.month - 6, now.day);
+          cutoffDate = _subtractMonths(now, 6);
           info = 'Filtrowanie: Ostatnie 6 miesięcy';
           break;
         case TimeFilterOption.year1:
@@ -144,71 +184,73 @@ FilterResult applyFuelFilter(List<FuelEntry> allEntries, FuelFilterState filterS
           info = 'Filtrowanie: Ostatni rok';
           break;
         case TimeFilterOption.all:
-          cutoffDate = DateTime(2020, 1, 1);
-          info = 'Filtrowanie: Cała historia czasowa';
-          break;
+          throw StateError('Opcja obsłużona wcześniej.');
       }
-      result = sorted.where((e) => e.date.isAfter(cutoffDate) || e.date.isAtSameMomentAs(cutoffDate)).toList();
+      result = sorted.where((entry) => !entry.date.isBefore(cutoffDate)).toList();
       break;
 
     case FilterMainMode.count:
-      int targetCount = 10;
-      switch (filterState.countOption) {
-        case CountFilterOption.c5: targetCount = 5; info = 'Ostatnie 5 tankowań'; break;
-        case CountFilterOption.c10: targetCount = 10; info = 'Ostatnie 10 tankowań'; break;
-        case CountFilterOption.c20: targetCount = 20; info = 'Ostatnie 20 tankowań'; break;
-        case CountFilterOption.cAll: targetCount = sorted.length; info = 'Wszystkie tankowania'; break;
-      }
-
-      if (sorted.length < targetCount) {
+      final targetCount = switch (filterState.countOption) {
+        CountFilterOption.c5 => 5,
+        CountFilterOption.c10 => 10,
+        CountFilterOption.c20 => 20,
+        CountFilterOption.cAll => sorted.length,
+      };
+      info = switch (filterState.countOption) {
+        CountFilterOption.c5 => 'Ostatnie 5 tankowań',
+        CountFilterOption.c10 => 'Ostatnie 10 tankowań',
+        CountFilterOption.c20 => 'Ostatnie 20 tankowań',
+        CountFilterOption.cAll => 'Wszystkie tankowania',
+      };
+      result = sorted.take(targetCount).toList();
+      if (filterState.countOption != CountFilterOption.cAll &&
+          sorted.length < targetCount) {
         limited = true;
-        result = sorted;
-        info += ' (Dostępne tylko ${sorted.length} z żądanych $targetCount tankowań)';
-      } else {
-        result = sorted.take(targetCount).toList();
-        if (targetCount == 1 && sorted.length > 1) {
-          result.add(sorted[1]);
-          info += ' (Dołączono poprzedni wpis dla zachowania ciągłości obliczeń)';
-        }
+        info +=
+            ' (Dostępne tylko ${sorted.length} z żądanych $targetCount tankowań)';
       }
       break;
 
     case FilterMainMode.distance:
-      double targetKm = 1000;
-      switch (filterState.distanceOption) {
-        case DistanceFilterOption.km500: targetKm = 500; info = 'Ostatnie 500 km'; break;
-        case DistanceFilterOption.km1000: targetKm = 1000; info = 'Ostatnie 1000 km'; break;
-        case DistanceFilterOption.km5000: targetKm = 5000; info = 'Ostatnie 5000 km'; break;
-        case DistanceFilterOption.kmAll: targetKm = double.infinity; info = 'Cały dystans'; break;
-      }
-
-      double accumulatedKm = 0.0;
-      for (var entry in sorted) {
+      final targetKm = switch (filterState.distanceOption) {
+        DistanceFilterOption.km500 => 500.0,
+        DistanceFilterOption.km1000 => 1000.0,
+        DistanceFilterOption.km5000 => 5000.0,
+        DistanceFilterOption.kmAll => double.infinity,
+      };
+      info = switch (filterState.distanceOption) {
+        DistanceFilterOption.km500 => 'Ostatnie 500 km',
+        DistanceFilterOption.km1000 => 'Ostatnie 1000 km',
+        DistanceFilterOption.km5000 => 'Ostatnie 5000 km',
+        DistanceFilterOption.kmAll => 'Cały dystans',
+      };
+      double accumulatedKm = 0;
+      for (final entry in sorted) {
         result.add(entry);
-        if (entry.tripDistance != null) {
-          accumulatedKm += entry.tripDistance!;
-        }
+        accumulatedKm += entry.tripDistance ?? 0;
         if (accumulatedKm >= targetKm) break;
       }
-      if (accumulatedKm < targetKm && targetKm != double.infinity) {
+      if (targetKm.isFinite && accumulatedKm < targetKm) {
         limited = true;
-        info += ' (Osiągnięto maksymalny dostępny dystans: ${accumulatedKm.toStringAsFixed(0)} km)';
+        info +=
+            ' (Osiągnięto maksymalny dostępny dystans: ${accumulatedKm.toStringAsFixed(0)} km)';
       }
       break;
 
     case FilterMainMode.custom:
-      if (filterState.customDateRange != null) {
-        final start = filterState.customDateRange!.start;
-        final end = filterState.customDateRange!.end;
-        result = sorted.where((e) => 
-          (e.date.isAfter(start) || e.date.isAtSameMomentAs(start)) &&
-          (e.date.isBefore(end) || e.date.isAtSameMomentAs(end))
-        ).toList();
-        info = 'Zakres: ${start.day}.${start.month}.${start.year} - ${end.day}.${end.month}.${end.year}';
-      } else {
+      final range = filterState.customDateRange;
+      if (range == null) {
         result = sorted;
         info = 'Własny zakres: Brak wybranego okresu';
+        break;
       }
+      final start = _dateOnly(range.start);
+      final endExclusive = _dateOnly(range.end).add(const Duration(days: 1));
+      result = sorted.where((entry) {
+        return !entry.date.isBefore(start) && entry.date.isBefore(endExclusive);
+      }).toList();
+      info =
+          'Zakres: ${start.day}.${start.month}.${start.year} - ${range.end.day}.${range.end.month}.${range.end.year}';
       break;
   }
 
@@ -243,9 +285,17 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
     _currentFilter = widget.initialFilterState;
   }
 
-  void _update(VoidCallback fn) {
-    setState(fn);
-    widget.onFilterChanged(_currentFilter);
+  @override
+  void didUpdateWidget(covariant FuelFilterWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialFilterState != widget.initialFilterState) {
+      _currentFilter = widget.initialFilterState;
+    }
+  }
+
+  void _update(FuelFilterState value) {
+    setState(() => _currentFilter = value);
+    widget.onFilterChanged(value);
   }
 
   @override
@@ -267,7 +317,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
               ],
               selected: {_currentFilter.mainMode},
               onSelectionChanged: (Set<FilterMainMode> selection) {
-                _update(() => _currentFilter.mainMode = selection.first);
+                _update(_currentFilter.copyWith(mainMode: selection.first));
               },
             ),
             const SizedBox(height: 12),
@@ -302,7 +352,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             label: Text(label),
             selected: _currentFilter.timeOption == option,
             onSelected: (selected) {
-              if (selected) _update(() => _currentFilter.timeOption = option);
+              if (selected) _update(_currentFilter.copyWith(timeOption: option));
             },
           ),
         ));
@@ -322,7 +372,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             label: Text(label),
             selected: _currentFilter.countOption == option,
             onSelected: (selected) {
-              if (selected) _update(() => _currentFilter.countOption = option);
+              if (selected) _update(_currentFilter.copyWith(countOption: option));
             },
           ),
         ));
@@ -342,7 +392,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             label: Text(label),
             selected: _currentFilter.distanceOption == option,
             onSelected: (selected) {
-              if (selected) _update(() => _currentFilter.distanceOption = option);
+              if (selected) _update(_currentFilter.copyWith(distanceOption: option));
             },
           ),
         ));
@@ -362,7 +412,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
               initialDateRange: _currentFilter.customDateRange,
             );
             if (picked != null) {
-              _update(() => _currentFilter.customDateRange = picked);
+              _update(_currentFilter.copyWith(customDateRange: picked));
             }
           },
         ),
@@ -470,9 +520,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
-    _loadEntriesFromFile();
+    _initialize();
   }
 
+
+  Future<void> _initialize() async {
+    await _loadEntriesFromFile();
+    await _checkAndPerformMonthlyBackup();
+  }
   @override
   void dispose() {
     _tabController.dispose();
@@ -487,29 +542,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _loadEntriesFromFile() async {
     try {
       final file = await _getJsonFile();
+      final loaded = <FuelEntry>[];
       if (await file.exists()) {
-        final String contents = await file.readAsString();
-        final List<dynamic> jsonList = jsonDecode(contents);
-        setState(() {
-          _entries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
+        final decoded = jsonDecode(await file.readAsString());
+        if (decoded is! List) {
+          throw const FormatException('Główny element JSON nie jest listą.');
+        }
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          try {
+            loaded.add(FuelEntry.fromJson(Map<String, dynamic>.from(item)));
+          } catch (error) {
+            debugPrint('Pominięto uszkodzony rekord JSON: $error');
+          }
+        }
       }
-    } catch (e) {
-      debugPrint("Błąd wczytywania danych: $e");
+      if (!mounted) return;
+      setState(() {
+        _entries = loaded;
+        _isLoading = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Błąd wczytywania danych: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
       setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nie udało się wczytać zapisanych danych.')),
+      );
     }
   }
 
-  Future<void> _saveEntriesToFile() async {
+  Future<bool> _saveEntriesToFile() async {
     try {
       final file = await _getJsonFile();
-      final List<Map<String, dynamic>> jsonList = _entries.map((e) => e.toJson()).toList();
-      await file.writeAsString(jsonEncode(jsonList));
-    } catch (e) {
-      debugPrint("Błąd zapisu danych: $e");
+      final temporaryFile = File('${file.path}.tmp');
+      final jsonList = _entries.map((entry) => entry.toJson()).toList();
+      await temporaryFile.writeAsString(jsonEncode(jsonList), flush: true);
+      if (await file.exists()) await file.delete();
+      await temporaryFile.rename(file.path);
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Błąd zapisu danych: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nie udało się zapisać zmian.')),
+        );
+      }
+      return false;
     }
   }
 
@@ -631,16 +712,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               continue;
             }
 
-            DateTime entryDate = DateTime.now();
-            try {
-              final parts = firstCellVal.split('.');
-              if (parts.length == 3) {
-                int day = int.parse(parts[0]);
-                int month = int.parse(parts[1]);
-                int year = int.parse(parts[2]);
-                entryDate = DateTime(year, month, day);
-              }
-            } catch (_) {}
+            final parts = firstCellVal.trim().split('.');
+            if (parts.length != 3) continue;
+            final day = int.tryParse(parts[0]);
+            final month = int.tryParse(parts[1]);
+            final year = int.tryParse(parts[2]);
+            if (day == null || month == null || year == null) continue;
+            final entryDate = DateTime(year, month, day);
+            if (entryDate.day != day ||
+                entryDate.month != month ||
+                entryDate.year != year) {
+              continue;
+            }
 
             double? tripDistance;
             if (row.length > 1 && row[1]?.value != null) {
@@ -822,7 +905,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     double odoDiff = newest.odometer! - oldest.odometer!;
     if (odoDiff > 0) {
       double litersDrawn = 0.0;
-      for (int i = 0; i < listWithOdo.length - 1; i++) {
+      for (int i = 1; i < listWithOdo.length; i++) {
         litersDrawn += listWithOdo[i].liters;
       }
       return (litersDrawn / odoDiff) * 100;
@@ -859,27 +942,37 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _scanReceipt(ImageSource source) async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: source);
+    TextRecognizer? recognizer;
+    Map<String, dynamic>? parsedData;
+    try {
+      final image = await ImagePicker().pickImage(source: source);
+      if (image == null || !mounted) return;
+      setState(() => _isScanning = true);
 
-    if (image == null) return;
+      recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final recognizedText = await recognizer.processImage(
+        InputImage.fromFilePath(image.path),
+      );
+      parsedData = _extractFuelData(recognizedText.text);
+    } catch (error, stackTrace) {
+      debugPrint('Błąd skanowania paragonu: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nie udało się odczytać paragonu.')),
+        );
+      }
+    } finally {
+      await recognizer?.close();
+      if (mounted) setState(() => _isScanning = false);
+    }
 
-    setState(() => _isScanning = true);
-
-    final inputImage = InputImage.fromFilePath(image.path);
-    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-
-    final parsedData = _extractFuelData(recognizedText.text);
-
-    await textRecognizer.close();
-    setState(() => _isScanning = false);
-
+    if (!mounted || parsedData == null) return;
     _showEntryFormDialog(
-      initialCost: parsedData['cost'],
-      initialLiters: parsedData['liters'],
-      initialType: parsedData['detectedType'],
-      initialDate: parsedData['date'],
+      initialCost: parsedData['cost'] as double?,
+      initialLiters: parsedData['liters'] as double?,
+      initialType: parsedData['detectedType'] as FuelType?,
+      initialDate: parsedData['date'] as DateTime?,
     );
   }
 
@@ -969,9 +1062,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
 
-    final sortedEntries = List<FuelEntry>.from(_entries)..sort((a, b) => b.date.compareTo(a.date));
-    final entriesWithOdo = sortedEntries.where((e) => e.odometer != null).toList();
-    double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.first.odometer : null;
+    double? previousOdometer(DateTime before) {
+      final candidates = _entries
+          .where((entry) =>
+              entry.id != entryToEdit?.id &&
+              entry.odometer != null &&
+              entry.date.isBefore(before))
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      return candidates.isEmpty ? null : candidates.first.odometer;
+    }
+
+    double? lastOdometer = previousOdometer(selectedDate);
 
     showDialog(
       context: context,
@@ -1026,7 +1128,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       lastDate: DateTime.now(),
                     );
                     if (pickedDate != null) {
-                      setDialogState(() => selectedDate = pickedDate);
+                      setDialogState(() {
+                        selectedDate = pickedDate;
+                        lastOdometer = previousOdometer(selectedDate);
+                      });
                     }
                   },
                   icon: const Icon(Icons.calendar_today, size: 18),
@@ -1099,9 +1204,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
                 double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
 
-                if (cost == null || liters == null) {
+                if (cost == null || cost <= 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Uzupełnij poprawnie Koszt i Litry!'))
+                    const SnackBar(content: Text('Koszt musi być większy od zera.')),
+                  );
+                  return;
+                }
+                if (liters == null || liters <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Liczba litrów musi być większa od zera.')),
                   );
                   return;
                 }
@@ -1113,12 +1224,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 double? trip = tripController.text.trim().isNotEmpty
                     ? double.tryParse(tripController.text.replaceAll(',', '.'))
                     : null;
+                if (odo != null && odo < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Stan licznika nie może być ujemny.')),
+                  );
+                  return;
+                }
+                if (trip != null && trip <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Dystans musi być większy od zera.')),
+                  );
+                  return;
+                }
+                lastOdometer = previousOdometer(selectedDate);
 
-                if (odo == null && trip != null && lastOdometer != null && !isEditing) {
+                if (odo == null && trip != null && lastOdometer != null) {
                   odo = lastOdometer + trip;
                 }
 
-                if (trip == null && odo != null && lastOdometer != null && !isEditing && odo > lastOdometer) {
+                if (trip == null && odo != null && lastOdometer != null && odo > lastOdometer) {
                   trip = odo - lastOdometer;
                 }
 
@@ -1151,7 +1275,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      costController.dispose();
+      litersController.dispose();
+      tripController.dispose();
+      odometerController.dispose();
+    });
   }
 
   Future<void> _exportToExcel() async {
@@ -1585,8 +1714,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     )
                   : SizedBox(
                       height: 250,
-                      child: CustomPaint(
-                        painter: MonthlyChartPainter(monthlyAverages),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final chartWidth = monthlyAverages.length * 64.0 >
+                                  constraints.maxWidth
+                              ? monthlyAverages.length * 64.0
+                              : constraints.maxWidth;
+                          return SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              width: chartWidth,
+                              child: CustomPaint(
+                                painter: MonthlyChartPainter(monthlyAverages),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
             ),
@@ -1701,5 +1844,7 @@ class MonthlyChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant MonthlyChartPainter oldDelegate) {
+    return !mapEquals(oldDelegate.monthlyData, monthlyData);
+  }
 }
