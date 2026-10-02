@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -991,10 +992,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona) ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona z żądaniem uprawnień) ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
+    // Jawne sprawdzenie i żądanie uprawnień do mikrofonu (naprawa błędu na nowym Androidzie)
+    var status = await Permission.microphone.status;
+    if (!status.isGranted) {
+      status = await Permission.microphone.request();
+      if (!status.isGranted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Brak uprawnień do mikrofonu w aplikacji.')),
+        );
+        return;
+      }
+    }
+
     StateSetter? dialogSetState;
     String recognizedText = '';
     
@@ -1024,7 +1038,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // Rozpoczynamy nasłuchiwanie przed otwarciem UI, żeby nie uruchamiało się wewnątrz funkcji budującej.
+    // Rozpoczynamy nasłuchiwanie przed otwarciem UI
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
@@ -1114,7 +1128,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
     
-    // Zabezpieczenie po zamknięciu okna.
     _speech.stop();
     _isListening = false;
   }
