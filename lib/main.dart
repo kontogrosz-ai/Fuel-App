@@ -9,7 +9,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -307,6 +306,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Układ 2x2 dla głównych trybów filtrowania
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -340,6 +340,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 12),
+            // Sub-opcje przewijane w poziomie
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -577,10 +578,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  FuelFilterState _fuelFilterState = FuelFilterState();
   
-  // Instancja rozpoznawania mowy
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  FuelFilterState _fuelFilterState = FuelFilterState();
 
   @override
   void initState() {
@@ -1125,7 +1124,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
-    bool isListeningLocal = false;
 
     double? previousOdometer(DateTime before) {
       final candidates = _entries
@@ -1144,284 +1142,210 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          void startListening() async {
-            bool available = await _speech.initialize(
-              onStatus: (status) => debugPrint('Status mowy: $status'),
-              onError: (error) => debugPrint('Błąd mowy: $error'),
-            );
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!isEditing && initialCost != null)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!isEditing && initialCost != null) const SizedBox(height: 16),
 
-            if (available) {
-              setDialogState(() => isListeningLocal = true);
-              _speech.listen(
-                localeId: 'pl_PL',
-                onResult: (result) {
-                  String text = result.recognizedWords.toLowerCase();
-                  debugPrint('Rozpoznano głos: $text');
-
-                  final litersRegex = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litr|litrów|litry)');
-                  final costRegex = RegExp(r'(?:koszt|za)?\s*(\d+[\.,]?\d*)\s*(?:zł|złotych|pln)?');
-
-                  final litersMatch = litersRegex.firstMatch(text);
-                  String? litersVal;
-                  if (litersMatch != null) {
-                    litersVal = litersMatch.group(1)!.replaceAll(',', '.');
-                    setDialogState(() {
-                      litersController.text = litersVal!;
-                    });
-                  }
-
-                  final costMatch = costRegex.firstMatch(text);
-                  if (costMatch != null) {
-                    String costVal = costMatch.group(1)!.replaceAll(',', '.');
-                    if (litersVal != costVal) {
+                SegmentedButton<FuelType>(
+                  segments: const [
+                    ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
+                  ],
+                  selected: {selectedType},
+                  onSelectionChanged: (Set<FuelType> newSelection) {
+                    setDialogState(() => selectedType = newSelection.first);
+                  },
+                ),
+                const SizedBox(height: 12),
+                
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final pickedDate = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now(),
+                    );
+                    if (pickedDate != null) {
                       setDialogState(() {
-                        costController.text = costVal;
+                        selectedDate = pickedDate;
+                        lastOdometer = previousOdometer(selectedDate);
                       });
                     }
-                  }
-                },
-              );
-            }
-          }
+                  },
+                  icon: const Icon(Icons.calendar_today, size: 18),
+                  label: Text('Data: ${selectedDate.day}.${selectedDate.month}.${selectedDate.year}'),
+                ),
+                const SizedBox(height: 8),
 
-          void stopListening() {
-            _speech.stop();
-            setDialogState(() => isListeningLocal = false);
-          }
+                SwitchListTile(
+                  title: const Text('Tankowanie do pełna', style: TextStyle(fontSize: 14)),
+                  subtitle: Text(
+                    isFullTank ? 'Pełny bak (zamknięcie cyklu)' : 'Częściowe (dolewka / nie do pełna)',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  value: isFullTank,
+                  onChanged: (bool value) {
+                    setDialogState(() => isFullTank = value);
+                  },
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 8),
 
-          return AlertDialog(
-            title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Przycisk głosowego wprowadzania danych w formularzu
-                  ElevatedButton.icon(
-                    onPressed: isListeningLocal ? stopListening : startListening,
-                    icon: Icon(isListeningLocal ? Icons.mic : Icons.mic_none),
-                    label: Text(isListeningLocal ? 'Słucham... (kliknij, aby zakończyć)' : 'Powiedz dane głosowo'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isListeningLocal ? Colors.red : Colors.teal,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 36),
-                    ),
+                TextField(
+                  controller: costController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Całkowity koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: litersController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Zatankowane litry (L)*', prefixIcon: Icon(Icons.opacity)),
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const Text(
+                  'Podaj jedno z poniższych, aby liczyć spalanie:',
+                  style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: tripController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Dystans odcinka (km)',
+                    hintText: 'np. 420 km',
+                    prefixIcon: Icon(Icons.add_road),
                   ),
-                  if (isListeningLocal)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4.0, bottom: 8.0),
-                      child: Text(
-                        'Mów np.: "250 złotych i 40 litrów"',
-                        style: TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-
-                  if (!isEditing && initialCost != null)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.orange),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Popraw wartości w polach, jeśli odczyt z paragonu zawiera błędy.',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (!isEditing && initialCost != null) const SizedBox(height: 16),
-
-                  SegmentedButton<FuelType>(
-                    segments: const [
-                      ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
-                      ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
-                    ],
-                    selected: {selectedType},
-                    onSelectionChanged: (Set<FuelType> newSelection) {
-                      setDialogState(() => selectedType = newSelection.first);
-                    },
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: odometerController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Stan licznika (km)',
+                    hintText: (() {
+                      final localOdo = lastOdometer;
+                      return (!isEditing && localOdo != null)
+                          ? 'Ostatnio: ${localOdo.toStringAsFixed(0)} km'
+                          : 'np. 150000 km';
+                    })(),
+                    prefixIcon: const Icon(Icons.speed),
                   ),
-                  const SizedBox(height: 12),
-                  
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final pickedDate = await showDatePicker(
-                        context: context,
-                        initialDate: selectedDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (pickedDate != null) {
-                        setDialogState(() {
-                          selectedDate = pickedDate;
-                          lastOdometer = previousOdometer(selectedDate);
-                        });
-                      }
-                    },
-                    icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text('Data: ${selectedDate.day}.${selectedDate.month}.${selectedDate.year}'),
-                  ),
-                  const SizedBox(height: 8),
-
-                  SwitchListTile(
-                    title: const Text('Tankowanie do pełna', style: TextStyle(fontSize: 14)),
-                    subtitle: Text(
-                      isFullTank ? 'Pełny bak (zamknięcie cyklu)' : 'Częściowe (dolewka / nie do pełna)',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
-                    value: isFullTank,
-                    onChanged: (bool value) {
-                      setDialogState(() => isFullTank = value);
-                    },
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const SizedBox(height: 8),
-
-                  TextField(
-                    controller: costController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Całkowity koszt (PLN)*', prefixIcon: Icon(Icons.attach_money)),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: litersController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Zatankowane litry (L)*', prefixIcon: Icon(Icons.opacity)),
-                  ),
-                  const SizedBox(height: 16),
-                  const Divider(),
-                  const Text(
-                    'Podaj jedno z poniższych, aby liczyć spalanie:',
-                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: tripController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Dystans odcinka (km)',
-                      hintText: 'np. 420 km',
-                      prefixIcon: Icon(Icons.add_road),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: odometerController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Stan licznika (km)',
-                      hintText: (() {
-                        final localOdo = lastOdometer;
-                        return (!isEditing && localOdo != null)
-                            ? 'Ostatnio: ${localOdo.toStringAsFixed(0)} km'
-                            : 'np. 150000 km';
-                      })(),
-                      prefixIcon: const Icon(Icons.speed),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _speech.stop();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _speech.stop();
-                  double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
-                  double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                double? cost = double.tryParse(costController.text.replaceAll(',', '.'));
+                double? liters = double.tryParse(litersController.text.replaceAll(',', '.'));
 
-                  if (cost == null || cost <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Koszt musi być większy od zera.')),
-                    );
-                    return;
-                  }
-                  if (liters == null || liters <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Liczba litrów musi być większa od zera.')),
-                    );
-                    return;
-                  }
-
-                  double? odo = odometerController.text.trim().isNotEmpty
-                      ? double.tryParse(odometerController.text.replaceAll(',', '.'))
-                      : null;
-
-                  double? trip = tripController.text.trim().isNotEmpty
-                      ? double.tryParse(tripController.text.replaceAll(',', '.'))
-                      : null;
-                  if (odo != null && odo < 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Stan licznika nie może być ujemny.')),
-                    );
-                    return;
-                  }
-                  if (trip != null && trip <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Dystans musi być większy od zera.')),
-                    );
-                    return;
-                  }
-                  
-                  lastOdometer = previousOdometer(selectedDate);
-                  final localOdo = lastOdometer;
-
-                  if (odo == null && trip != null && localOdo != null) {
-                    odo = localOdo + trip;
-                  }
-
-                  if (trip == null && odo != null && localOdo != null && odo > localOdo) {
-                    trip = odo - localOdo;
-                  }
-
-                  final newEntry = FuelEntry(
-                    id: isEditing ? entryToEdit.id : null,
-                    fuelType: selectedType,
-                    cost: cost,
-                    liters: liters,
-                    odometer: odo,
-                    tripDistance: trip,
-                    date: selectedDate,
-                    isFullTank: isFullTank,
+                if (cost == null || cost <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Koszt musi być większy od zera.')),
                   );
+                  return;
+                }
+                if (liters == null || liters <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Liczba litrów musi być większa od zera.')),
+                  );
+                  return;
+                }
 
-                  setState(() {
-                    if (isEditing) {
-                      final index = _entries.indexWhere((e) => e.id == entryToEdit.id);
-                      if (index != -1) {
-                        _entries[index] = newEntry;
-                      }
-                    } else {
-                      _entries.add(newEntry);
+                double? odo = odometerController.text.trim().isNotEmpty
+                    ? double.tryParse(odometerController.text.replaceAll(',', '.'))
+                    : null;
+
+                double? trip = tripController.text.trim().isNotEmpty
+                    ? double.tryParse(tripController.text.replaceAll(',', '.'))
+                    : null;
+                if (odo != null && odo < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Stan licznika nie może być ujemny.')),
+                  );
+                  return;
+                }
+                if (trip != null && trip <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Dystans musi być większy od zera.')),
+                  );
+                  return;
+                }
+                
+                lastOdometer = previousOdometer(selectedDate);
+                final localOdo = lastOdometer;
+
+                if (odo == null && trip != null && localOdo != null) {
+                  odo = localOdo + trip;
+                }
+
+                if (trip == null && odo != null && localOdo != null && odo > localOdo) {
+                  trip = odo - localOdo;
+                }
+
+                final newEntry = FuelEntry(
+                  id: isEditing ? entryToEdit.id : null,
+                  fuelType: selectedType,
+                  cost: cost,
+                  liters: liters,
+                  odometer: odo,
+                  tripDistance: trip,
+                  date: selectedDate,
+                  isFullTank: isFullTank,
+                );
+
+                setState(() {
+                  if (isEditing) {
+                    final index = _entries.indexWhere((e) => e.id == entryToEdit.id);
+                    if (index != -1) {
+                      _entries[index] = newEntry;
                     }
-                  });
-                  _saveEntriesToFile();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Zatwierdź'),
-              ),
-            ],
-          );
-        },
+                  } else {
+                    _entries.add(newEntry);
+                  }
+                });
+                _saveEntriesToFile();
+                Navigator.pop(ctx);
+              },
+              child: const Text('Zatwierdź'),
+            ),
+          ],
+        ),
       ),
     ).whenComplete(() {
-      _speech.stop();
       costController.dispose();
       litersController.dispose();
       tripController.dispose();
@@ -1553,7 +1477,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ListTile(
                 leading: const Icon(Icons.edit),
-                title: const Text('Dodaj ręcznie / Głosowo'),
+                title: const Text('Dodaj ręcznie'),
                 onTap: () {
                   Navigator.pop(context);
                   _showEntryFormDialog();
