@@ -66,7 +66,7 @@ extension FuelTypeExtension on FuelType {
   }
 }
 
-// --- KROK 1: DEFINICJE MODELI I STANU FILTROWANIA ---
+// --- DEFINICJE MODELI I STANU FILTROWANIA ---
 enum FilterMainMode { time, count, distance, custom }
 enum TimeFilterOption { month1, months3, months6, year1, all }
 enum CountFilterOption { c5, c10, c20, cAll }
@@ -117,7 +117,7 @@ class FilterResult {
   });
 }
 
-// --- KROK 2: ALGORYTM FILTRUJĄCY DANE ---
+// --- ALGORYTM FILTRUJĄCY DANE ---
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
 
@@ -259,7 +259,7 @@ FilterResult applyFuelFilter(
   );
 }
 
-// --- KROK 3: KOMPONENT UI FILTRA (UKŁAD 2x2) ---
+// --- KOMPONENT UI FILTRA (UKŁAD 2x2) ---
 class FuelFilterWidget extends StatefulWidget {
   final FuelFilterState initialFilterState;
   final ValueChanged<FuelFilterState> onFilterChanged;
@@ -306,7 +306,6 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Układ 2x2 dla głównych trybów filtrowania
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -340,7 +339,6 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 12),
-            // Sub-opcje przewijane w poziomie
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -663,6 +661,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       final file = await _getJsonFile();
       if (!await file.exists() || _entries.isEmpty) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Brak danych do wyeksportowania.')),
         );
@@ -674,6 +673,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         text: 'Plik kopii zapasowej bazy danych JSON.',
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Błąd eksportu JSON: $e')),
       );
@@ -693,7 +693,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final List<dynamic> jsonList = jsonDecode(contents);
         final importedEntries = jsonList.map((e) => FuelEntry.fromJson(e)).toList();
 
-        if(!mounted) return;
+        if (!mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -711,9 +711,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   });
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Zastąpiono bazę nowymi danymi.')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Zastąpiono bazę nowymi danymi.')),
+                    );
+                  }
                 },
                 child: const Text('Zastąp obecne'),
               ),
@@ -728,9 +730,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   });
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Połączono dane pomyślnie.')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Połączono dane pomyślnie.')),
+                    );
+                  }
                 },
                 child: const Text('Połącz (Scal)'),
               ),
@@ -739,6 +743,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Błąd podczas importu pliku: $e')),
       );
@@ -777,18 +782,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               continue;
             }
 
-            final parts = firstCellVal.trim().split('.');
-            if (parts.length != 3) continue;
-            final day = int.tryParse(parts[0]);
-            final month = int.tryParse(parts[1]);
-            final year = int.tryParse(parts[2]);
-            if (day == null || month == null || year == null) continue;
-            final entryDate = DateTime(year, month, day);
-            if (entryDate.day != day ||
-                entryDate.month != month ||
-                entryDate.year != year) {
-              continue;
+            DateTime? entryDate;
+            final cleanStr = firstCellVal.trim();
+            if (cleanStr.contains('.')) {
+              final parts = cleanStr.split('.');
+              if (parts.length == 3) {
+                final day = int.tryParse(parts[0]);
+                final month = int.tryParse(parts[1]);
+                final year = int.tryParse(parts[2]);
+                if (day != null && month != null && year != null) {
+                  entryDate = DateTime(year, month, day);
+                }
+              }
+            } else if (cleanStr.contains('-')) {
+              entryDate = DateTime.tryParse(cleanStr);
+            } else if (cleanStr.contains('/')) {
+              final parts = cleanStr.split('/');
+              if (parts.length == 3) {
+                final day = int.tryParse(parts[0]);
+                final month = int.tryParse(parts[1]);
+                final year = int.tryParse(parts[2]);
+                if (day != null && month != null && year != null) {
+                  entryDate = DateTime(year, month, day);
+                }
+              }
             }
+
+            if (entryDate == null) continue;
 
             double? tripDistance;
             if (row.length > 1 && row[1]?.value != null) {
@@ -833,14 +853,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
 
         if (importedEntries.isEmpty) {
-          if(!mounted) return;
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Nie znaleziono poprawnych danych w pliku Excel.')),
           );
           return;
         }
 
-        if(!mounted) return;
+        if (!mounted) return;
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -858,9 +878,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   });
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Zastąpiono bazę danymi z pliku Excel.')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Zastąpiono bazę danymi z pliku Excel.')),
+                    );
+                  }
                 },
                 child: const Text('Zastąp obecne'),
               ),
@@ -882,9 +904,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   });
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Połączono dane z pliku Excel pomyślnie.')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Połączono dane z pliku Excel pomyślnie.')),
+                    );
+                  }
                 },
                 child: const Text('Połącz (Scal)'),
               ),
@@ -893,6 +917,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Błąd podczas importu pliku Excel: $e')),
       );
@@ -1292,6 +1317,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 double? trip = tripController.text.trim().isNotEmpty
                     ? double.tryParse(tripController.text.replaceAll(',', '.'))
                     : null;
+
                 if (odo != null && odo < 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Stan licznika nie może być ujemny.')),
@@ -1354,8 +1380,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _exportToExcel() async {
-    final filteredList = _entriesForType(_chartFuelType);
-    if (filteredList.isEmpty) {
+    if (_entries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Brak danych do wyeksportowania.')),
       );
@@ -1426,7 +1451,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ..createSync(recursive: true)
           ..writeAsBytesSync(fileBytes);
         
-        if(!mounted) return;
+        if (!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
         await Share.shareXFiles(
@@ -1436,6 +1461,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Błąd podczas eksportu: $e')),
       );
