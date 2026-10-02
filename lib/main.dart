@@ -579,24 +579,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   FuelType _chartFuelType = FuelType.lpg;
   FuelFilterState _fuelFilterState = FuelFilterState();
 
-  // --- OBSŁUGA SPEECH TO TEXT ---
-  final stt.SpeechToText _speechToText = stt.SpeechToText();
-  bool _speechEnabled = false;
+  // --- SPEECH TO TEXT ---
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _isListening = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
     _initialize();
-    _initSpeech();
-  }
-
-  Future<void> _initSpeech() async {
-    try {
-      _speechEnabled = await _speechToText.initialize();
-    } catch (e) {
-      debugPrint('Błąd inicjalizacji SpeechToText: $e');
-    }
   }
 
   Future<void> _initialize() async {
@@ -668,157 +659,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
       return false;
     }
-  }
-
-  // --- PARSER WPROWADZANIA GŁOSOWEGO (SPEECH-TO-TEXT) ---
-  Map<String, dynamic> _parseSpokenText(String text) {
-    final lower = text.toLowerCase();
-    
-    FuelType detectedType = FuelType.lpg;
-    if (lower.contains('benzyn') || lower.contains('pb') || lower.contains('95') || lower.contains('98')) {
-      detectedType = FuelType.pb;
-    } else if (lower.contains('lpg') || lower.contains('gaz') || lower.contains('autogaz')) {
-      detectedType = FuelType.lpg;
-    }
-
-    double? cost;
-    double? liters;
-    double? odometer;
-    double? tripDistance;
-
-    // Dopasowanie kosztu (zł, złotych, PLN)
-    final costRegex = RegExp(r'(?:za|koszt|kwota)?\s*(\d+[\.,]?\d*)\s*(?:zł|złote|złotych|pln)\b');
-    final costMatch = costRegex.firstMatch(lower);
-    if (costMatch != null) {
-      cost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    // Dopasowanie litrów (l, litra, litry, litrów)
-    final litersRegex = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litra|litry|litrów)\b');
-    final litersMatch = litersRegex.firstMatch(lower);
-    if (litersMatch != null) {
-      liters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    // Dopasowanie stanu licznika (licznik, przebieg)
-    final odoRegex = RegExp(r'(?:przebieg|licznik|stan)\s*(\d+[\.,]?\d*)');
-    final odoMatch = odoRegex.firstMatch(lower);
-    if (odoMatch != null) {
-      odometer = double.tryParse(odoMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    // Dopasowanie dystansu odcinka (dystans, trasa, odcinek)
-    final tripRegex = RegExp(r'(?:dystans|trasa|odcinek|km)\s*(\d+[\.,]?\d*)');
-    final tripMatch = tripRegex.firstMatch(lower);
-    if (tripMatch != null && odoMatch == null) {
-      tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    return {
-      'cost': cost,
-      'liters': liters,
-      'detectedType': detectedType,
-      'odometer': odometer,
-      'tripDistance': tripDistance,
-      'rawText': text,
-    };
-  }
-
-  void _startListeningVoiceInput() async {
-    if (!_speechEnabled) {
-      await _initSpeech();
-      if (!_speechEnabled) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Udsłuchiwanie niedostępne. Sprawdź uprawnienia do mikrofonu.')),
-        );
-        return;
-      }
-    }
-
-    String spokenWords = '';
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          if (!_speechToText.isListening) {
-            _speechToText.listen(
-              localeId: 'pl_PL',
-              onResult: (result) {
-                setDialogState(() {
-                  spokenWords = result.recognizedWords;
-                });
-              },
-            );
-          }
-
-          return AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.mic, color: Colors.red, size: 28),
-                SizedBox(width: 8),
-                Text('Mów teraz...'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Powiedz np.: "Zatankowałem LPG za 120 zł, 28 litrów, przebieg 185000"',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.teal.shade200),
-                  ),
-                  child: Text(
-                    spokenWords.isEmpty ? 'Nasłuchiwanie...' : spokenWords,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontStyle: spokenWords.isEmpty ? FontStyle.italic : FontStyle.normal,
-                      color: spokenWords.isEmpty ? Colors.grey : Colors.black,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _speechToText.stop();
-                  Navigator.pop(dialogCtx);
-                },
-                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _speechToText.stop();
-                  Navigator.pop(dialogCtx);
-                  if (spokenWords.isNotEmpty) {
-                    final parsed = _parseSpokenText(spokenWords);
-                    _showEntryFormDialog(
-                      initialCost: parsed['cost'] as double?,
-                      initialLiters: parsed['liters'] as double?,
-                      initialType: parsed['detectedType'] as FuelType?,
-                      initialOdometer: parsed['odometer'] as double?,
-                      initialTripDistance: parsed['tripDistance'] as double?,
-                    );
-                  }
-                },
-                child: const Text('Zatwierdź tekst'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
   }
 
   Future<void> _exportJson() async {
@@ -1088,6 +928,176 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  // --- PARSOWANIE DANYCH GŁOSOWYCH (SPEECH-TO-TEXT) ---
+  Map<String, dynamic> _extractFuelDataFromSpeech(String text) {
+    double? detectedLiters;
+    double? detectedCost;
+    FuelType detectedType = FuelType.lpg;
+    double? tripDistance;
+    double? odometer;
+
+    final lowerText = text.toLowerCase();
+
+    if (lowerText.contains('pb') || lowerText.contains('benzyn') || lowerText.contains('95') || lowerText.contains('98')) {
+      detectedType = FuelType.pb;
+    } else if (lowerText.contains('lpg') || lowerText.contains('gaz') || lowerText.contains('autogaz')) {
+      detectedType = FuelType.lpg;
+    }
+
+    final costMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:zł|złotych|pln)', caseSensitive: false).firstMatch(lowerText) ??
+                      RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+    if (costMatch != null) {
+      detectedCost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    final litersMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litr|litry|litrów)', caseSensitive: false).firstMatch(lowerText) ??
+                        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+    if (litersMatch != null) {
+      detectedLiters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    final tripMatch = RegExp(r'(?:dystans|przejechane|odcinek)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText) ??
+                      RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
+    if (tripMatch != null) {
+      tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    final odoMatch = RegExp(r'(?:licznik|stan licznika)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+    if (odoMatch != null) {
+      odometer = double.tryParse(odoMatch.group(1)!.replaceAll(',', '.'));
+    }
+
+    // Wyciąganie wartości w przypadku braku słów kluczowych
+    if (detectedCost == null || detectedLiters == null) {
+      final matches = RegExp(r'\b\d+[\.,]?\d*\b')
+          .allMatches(text)
+          .map((m) => double.tryParse(m.group(0)!.replaceAll(',', '.')))
+          .whereType<double>()
+          .toList();
+
+      if (matches.isNotEmpty && detectedCost == null) {
+        detectedCost = matches[0];
+      }
+      if (matches.length > 1 && detectedLiters == null) {
+        detectedLiters = matches[1];
+      }
+    }
+
+    return {
+      'cost': detectedCost,
+      'liters': detectedLiters,
+      'detectedType': detectedType,
+      'tripDistance': tripDistance,
+      'odometer': odometer,
+    };
+  }
+
+  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
+  Future<void> _startVoiceInput({
+    Function(Map<String, dynamic>)? onRecognized,
+  }) async {
+    bool available = await _speech.initialize(
+      onStatus: (val) => debugPrint('onStatus: $val'),
+      onError: (val) => debugPrint('onError: $val'),
+    );
+
+    if (!available) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rozpoznawanie mowy jest niedostępne na tym urządzeniu.')),
+      );
+      return;
+    }
+
+    String recognizedText = '';
+    _isListening = true;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          if (_isListening) {
+            _speech.listen(
+              localeId: 'pl_PL',
+              onResult: (val) {
+                setDialogState(() {
+                  recognizedText = val.recognizedWords;
+                });
+              },
+            );
+          }
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.mic, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Mów teraz...'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Mów np.: "Koszt 150 złotych, 25 litrów, dystans 400 km, gaz"',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    recognizedText.isEmpty ? 'Słucham...' : recognizedText,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _speech.stop();
+                  _isListening = false;
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _speech.stop();
+                  _isListening = false;
+                  Navigator.pop(ctx);
+
+                  final parsed = _extractFuelDataFromSpeech(recognizedText);
+                  if (onRecognized != null) {
+                    onRecognized(parsed);
+                  } else {
+                    _showEntryFormDialog(
+                      initialCost: parsed['cost'],
+                      initialLiters: parsed['liters'],
+                      initialType: parsed['detectedType'],
+                      initialTrip: parsed['tripDistance'],
+                      initialOdometer: parsed['odometer'],
+                    );
+                  }
+                },
+                child: const Text('Zatwierdź'),
+              ),
+            ],
+          );
+        },
+      ),
+    ).then((_) {
+      _speech.stop();
+      _isListening = false;
+    });
+  }
+
   FilterResult _getFilterResultForType(FuelType type) {
     final typeEntries = _entries.where((e) => e.fuelType == type).toList();
     return applyFuelFilter(typeEntries, _fuelFilterState);
@@ -1294,8 +1304,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     double? initialLiters,
     FuelType? initialType,
     DateTime? initialDate,
+    double? initialTrip,
     double? initialOdometer,
-    double? initialTripDistance,
   }) {
     final bool isEditing = entryToEdit != null;
 
@@ -1308,12 +1318,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final tripController = TextEditingController(
       text: isEditing && entryToEdit.tripDistance != null
           ? entryToEdit.tripDistance!.toStringAsFixed(1)
-          : initialTripDistance?.toStringAsFixed(1) ?? '',
+          : (initialTrip != null ? initialTrip.toStringAsFixed(1) : ''),
     );
     final odometerController = TextEditingController(
       text: isEditing && entryToEdit.odometer != null
           ? entryToEdit.odometer!.toStringAsFixed(0)
-          : initialOdometer?.toStringAsFixed(0) ?? '',
+          : (initialOdometer != null ? initialOdometer.toStringAsFixed(0) : ''),
     );
     
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
@@ -1344,10 +1354,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
               IconButton(
                 icon: const Icon(Icons.mic, color: Colors.teal),
-                tooltip: 'Dyktuj głosem',
+                tooltip: 'Podyktuj dane głosowo',
                 onPressed: () {
-                  Navigator.pop(ctx);
-                  _startListeningVoiceInput();
+                  _startVoiceInput(onRecognized: (parsed) {
+                    setDialogState(() {
+                      if (parsed['cost'] != null) {
+                        costController.text = (parsed['cost'] as double).toStringAsFixed(2);
+                      }
+                      if (parsed['liters'] != null) {
+                        litersController.text = (parsed['liters'] as double).toStringAsFixed(2);
+                      }
+                      if (parsed['tripDistance'] != null) {
+                        tripController.text = (parsed['tripDistance'] as double).toStringAsFixed(1);
+                      }
+                      if (parsed['odometer'] != null) {
+                        odometerController.text = (parsed['odometer'] as double).toStringAsFixed(0);
+                      }
+                      if (parsed['detectedType'] != null) {
+                        selectedType = parsed['detectedType'] as FuelType;
+                      }
+                    });
+                  });
                 },
               ),
             ],
@@ -1369,7 +1396,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Popraw wartości w polach, jeśli rozpoznany tekst/skan zawiera błędy.',
+                            'Popraw wartości w polach, jeśli odczyt zawiera błędy.',
                             style: TextStyle(fontSize: 12),
                           ),
                         ),
@@ -1669,12 +1696,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.mic, color: Colors.teal),
-                title: const Text('Wprowadź głosem (Speech-to-Text)'),
-                subtitle: const Text('Podyktuj koszt, litry i typ paliwa'),
+                leading: const Icon(Icons.mic, color: Colors.deepOrange),
+                title: const Text('Głosowe wprowadzanie (Speech-to-Text)'),
                 onTap: () {
                   Navigator.pop(context);
-                  _startListeningVoiceInput();
+                  _startVoiceInput();
                 },
               ),
               ListTile(
