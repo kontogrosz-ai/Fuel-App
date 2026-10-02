@@ -1,5 +1,5 @@
 name: fuel_app
-description: "Aplikacja do śledzenia zużycia paliwa (LPG i PB)."
+description: "Aplikacja do zarządzania tankowaniem i spalaniem."
 publish_to: "none" 
 
 version: 1.0.0+1
