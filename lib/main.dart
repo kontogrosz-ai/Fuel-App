@@ -164,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                e.date.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
       }).toList();
     }
-    // ZMIANA: Sortowanie malejąco (najnowsza data na samej górze)
+    // Sortowanie malejąco (najnowsza data na samej górze)
     list.sort((a, b) => b.date.compareTo(a.date));
     return list;
   }
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
   double? _calculatedAvgConsumptionFor(FuelType type) {
-    final list = _entriesForType(type); // Lista jest teraz posortowana malejąco (najnowsze na górze)
+    final list = _entriesForType(type); 
     if (list.isEmpty) return null;
 
     double totalDistance = 0.0;
@@ -205,7 +205,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       if (odoDiff > 0) {
         double litersDrawn = 0.0;
-        // Ponieważ lista jest malejąca, pomijamy OSTATNI (najstarszy) element na liście.
         for (int i = 0; i < listWithOdo.length - 1; i++) {
           litersDrawn += listWithOdo[i].liters;
         }
@@ -369,7 +368,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
 
-    // Pobranie chronologicznie najnowszego stanu licznika (ponieważ główna lista _entries może nie być posortowana)
     final sortedEntries = List<FuelEntry>.from(_entries)..sort((a, b) => b.date.compareTo(a.date));
     final entriesWithOdo = sortedEntries.where((e) => e.odometer != null).toList();
     double? lastOdometer = entriesWithOdo.isNotEmpty ? entriesWithOdo.first.odometer : null;
@@ -539,64 +537,92 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // --- ULEPSZONA FUNKCJA EKSPORTU DO EXCELA ---
   Future<void> _exportToExcel() async {
-    if (_filteredEntries.isEmpty) return;
+    if (_filteredEntries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Brak danych do wyeksportowania.')),
+      );
+      return;
+    }
 
-    var excel = Excel.createExcel();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Generowanie pliku Excel...')),
+    );
 
-    void createSheetForType(String sheetName, FuelType type) {
-      Sheet sheetObject = excel[sheetName];
-      final list = _entriesForType(type); // Lista również tu będzie wyeksportowana od najnowszych do najstarszych
+    try {
+      var excel = Excel.createExcel();
 
-      sheetObject.appendRow([
-        'Data',
-        'Dystans (km)',
-        'Stan licznika (km)',
-        'Koszt (PLN)',
-        'Paliwo (L)',
-        'Spalanie (L/100km)',
-      ]);
+      void createSheetForType(String sheetName, FuelType type) {
+        Sheet sheetObject = excel[sheetName];
+        final list = _entriesForType(type); 
 
-      for (var entry in list) {
         sheetObject.appendRow([
-          '${entry.date.day}.${entry.date.month}.${entry.date.year}',
-          entry.tripDistance ?? '-',
-          entry.odometer ?? '-',
-          entry.cost,
-          entry.liters,
-          entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+          'Data',
+          'Dystans (km)',
+          'Stan licznika (km)',
+          'Koszt (PLN)',
+          'Paliwo (L)',
+          'Spalanie (L/100km)',
+        ]);
+
+        for (var entry in list) {
+          sheetObject.appendRow([
+            '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
+            entry.tripDistance ?? '-',
+            entry.odometer ?? '-',
+            entry.cost,
+            entry.liters,
+            entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+          ]);
+        }
+
+        double totalCost = _totalCostFor(type);
+        double totalLiters = _totalLitersFor(type);
+        double? avgCons = _calculatedAvgConsumptionFor(type);
+
+        sheetObject.appendRow([]);
+        sheetObject.appendRow([
+          'PODSUMOWANIE',
+          '-',
+          '-',
+          double.parse(totalCost.toStringAsFixed(2)),
+          double.parse(totalLiters.toStringAsFixed(2)),
+          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
         ]);
       }
 
-      double totalCost = _totalCostFor(type);
-      double totalLiters = _totalLitersFor(type);
-      double? avgCons = _calculatedAvgConsumptionFor(type);
+      createSheetForType('Benzyna (PB)', FuelType.pb);
+      createSheetForType('LPG', FuelType.lpg);
 
-      sheetObject.appendRow([]);
-      sheetObject.appendRow([
-        'PODSUMOWANIE',
-        '-',
-        '-',
-        double.parse(totalCost.toStringAsFixed(2)),
-        double.parse(totalLiters.toStringAsFixed(2)),
-        avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
-      ]);
-    }
+      excel.delete('Sheet1'); // Usuwamy domyślny pusty arkusz
 
-    createSheetForType('Benzyna (PB)', FuelType.pb);
-    createSheetForType('LPG', FuelType.lpg);
+      final directory = await getTemporaryDirectory();
+      final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
+      final filePath = '${directory.path}/Raport_Paliwa_$dateStr.xlsx';
+      final fileBytes = excel.save();
 
-    excel.delete('Sheet1');
-
-    final directory = await getTemporaryDirectory();
-    final filePath = '${directory.path}/raport_paliwa_${DateTime.now().millisecondsSinceEpoch}.xlsx';
-    final fileBytes = excel.save();
-
-    if (fileBytes != null) {
-      File(filePath)..createSync(recursive: true)..writeAsBytesSync(fileBytes);
-      await Share.shareXFiles([XFile(filePath)], text: 'Rozdzielony raport paliwa PB i LPG');
+      if (fileBytes != null) {
+        File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(fileBytes);
+        
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        // Okno zapisu / udostępniania systemowego
+        await Share.shareXFiles(
+          [XFile(filePath)], 
+          subject: 'Raport z aplikacji Tanker',
+          text: 'Rozdzielony raport zużycia paliwa PB i LPG z aplikacji.',
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd podczas eksportu: $e')),
+      );
     }
   }
+  // ---------------------------------------------
 
   Widget _buildFuelTab(FuelType type) {
     final list = _entriesForType(type);
@@ -697,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('${entry.date.day}.${entry.date.month}.${entry.date.year}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            Text('${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                             if (singleCons != null)
                               Text(
                                 '${singleCons.toStringAsFixed(1)} l/100km',
@@ -728,7 +754,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           IconButton(
             icon: const Icon(Icons.file_download),
             tooltip: 'Eksportuj do Excela',
-            onPressed: _exportToExcel,
+            onPressed: _exportToExcel, // <--- Przycisk w prawym górnym rogu
           ),
         ],
         bottom: TabBar(
