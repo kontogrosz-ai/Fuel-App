@@ -1,7 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Uprawnienia wymagane przez speech-to-text -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Funkcje opcjonalne: aplikacja może działać bez aparatu -->
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <!-- Widoczność systemowych usług rozpoznawania mowy -->
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -11,27 +22,28 @@
         </intent>
     </queries>
 
+    <!-- Manifest nie odwołuje się do ikon, motywów ani konfiguracji backupu
+         znajdujących się w innych plikach XML. -->
     <application
         android:label="Aplikacja"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:allowBackup="true"
+        android:usesCleartextTraffic="false">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
