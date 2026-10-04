@@ -24,7 +24,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.13.0
 
   # Obsługa plików Excel, ścieżek i udostępniania
-  excel: 2.1.0  # Zablokowana wersja 2.1.0 unikająca konfliktów z klasami Fluttera
+  excel: ^4.0.6
   path_provider: ^2.1.5
   share_plus: ^10.0.0
 
