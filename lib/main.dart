@@ -473,7 +473,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
           onPressed: () async {
             final picked = await showDateRangePicker(
               context: context,
-              firstDate: DateTime(2026, 1, 1),
+              firstDate: DateTime(2020),
               lastDate: DateTime.now(),
               initialDateRange: _currentFilter.customDateRange,
             );
@@ -607,60 +607,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return File('${directory.path}/Dane_Tankowania.json');
   }
 
-  Future<void> _recoverDataFileIfNeeded() async {
-    final file = await _getJsonFile();
-    final temporaryFile = File('${file.path}.tmp');
-    final previousFile = File('${file.path}.previous');
-
-    if (await file.exists()) return;
-
-    // Najpierw próbujemy odzyskać kompletny plik tymczasowy. Jeżeli jest
-    // uszkodzony, usuwamy go i przywracamy ostatnią poprawną wersję.
-    if (await temporaryFile.exists()) {
-      try {
-        final decoded = jsonDecode(await temporaryFile.readAsString());
-        if (decoded is List) {
-          await temporaryFile.rename(file.path);
-          return;
-        }
-      } catch (error) {
-        debugPrint('Uszkodzony plik tymczasowy: $error');
-      }
-      await temporaryFile.delete();
-    }
-
-    if (await previousFile.exists()) {
-      await previousFile.rename(file.path);
-    }
-  }
-
   Future<void> _loadEntriesFromFile() async {
     try {
-      await _recoverDataFileIfNeeded();
       final file = await _getJsonFile();
       final loaded = <FuelEntry>[];
-
       if (await file.exists()) {
         final decoded = jsonDecode(await file.readAsString());
         if (decoded is! List) {
           throw const FormatException('Główny element JSON nie jest listą.');
         }
-
         for (final item in decoded) {
           if (item is! Map) continue;
           try {
-            final entry = FuelEntry.fromJson(
-              Map<String, dynamic>.from(item),
-            );
-            if (entry.cost > 0 && entry.liters > 0) {
-              loaded.add(entry);
-            }
+            loaded.add(FuelEntry.fromJson(Map<String, dynamic>.from(item)));
           } catch (error) {
             debugPrint('Pominięto uszkodzony rekord JSON: $error');
           }
         }
       }
-
       if (!mounted) return;
       setState(() {
         _entries = loaded;
@@ -672,64 +636,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       if (!mounted) return;
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nie udało się wczytać zapisanych danych.'),
-        ),
+        const SnackBar(content: Text('Nie udało się wczytać zapisanych danych.')),
       );
     }
   }
 
   Future<bool> _saveEntriesToFile() async {
-    final file = await _getJsonFile();
-    final temporaryFile = File('${file.path}.tmp');
-    final previousFile = File('${file.path}.previous');
-
     try {
+      final file = await _getJsonFile();
+      final temporaryFile = File('${file.path}.tmp');
       final jsonList = _entries.map((entry) => entry.toJson()).toList();
-      await temporaryFile.writeAsString(
-        jsonEncode(jsonList),
-        flush: true,
-      );
-
-      // Ponowny odczyt wykrywa niepełny zapis przed zastąpieniem bazy.
-      final verification = jsonDecode(await temporaryFile.readAsString());
-      if (verification is! List) {
-        throw const FormatException(
-          'Weryfikacja pliku tymczasowego nie powiodła się.',
-        );
-      }
-
-      if (await previousFile.exists()) {
-        await previousFile.delete();
-      }
-      if (await file.exists()) {
-        await file.rename(previousFile.path);
-      }
-
-      try {
-        await temporaryFile.rename(file.path);
-        if (await previousFile.exists()) {
-          await previousFile.delete();
-        }
-        return true;
-      } catch (_) {
-        if (!await file.exists() && await previousFile.exists()) {
-          await previousFile.rename(file.path);
-        }
-        rethrow;
-      }
+      await temporaryFile.writeAsString(jsonEncode(jsonList), flush: true);
+      if (await file.exists()) await file.delete();
+      await temporaryFile.rename(file.path);
+      return true;
     } catch (error, stackTrace) {
       debugPrint('Błąd zapisu danych: $error');
       debugPrintStack(stackTrace: stackTrace);
-
-      if (!await file.exists() && await previousFile.exists()) {
-        try {
-          await previousFile.rename(file.path);
-        } catch (restoreError) {
-          debugPrint('Nie udało się przywrócić poprzedniego pliku: $restoreError');
-        }
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Nie udało się zapisać zmian.')),
@@ -832,6 +755,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  String _excelCellText(CellValue? value) {
+    return switch (value) {
+      null => '',
+      TextCellValue() => value.value,
+      FormulaCellValue() => value.formula,
+      IntCellValue() => value.value.toString(),
+      DoubleCellValue() => value.value.toString(),
+      BoolCellValue() => value.value.toString(),
+      DateCellValue() =>
+        '${value.day.toString().padLeft(2, '0')}.'
+        '${value.month.toString().padLeft(2, '0')}.'
+        '${value.year}',
+      DateTimeCellValue() => value.asDateTimeLocal().toIso8601String(),
+      TimeCellValue() => value.asDuration().toString(),
+    };
+  }
+
   Future<void> _importExcel() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -859,7 +799,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             final row = table.rows[i];
             if (row.isEmpty || row[0] == null) continue;
 
-            final firstCellVal = row[0]?.value?.toString() ?? '';
+            final firstCellVal = _excelCellText(row[0]?.value);
             if (firstCellVal.isEmpty || firstCellVal == 'PODSUMOWANIE' || firstCellVal == '-') {
               continue;
             }
@@ -894,7 +834,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double? tripDistance;
             if (row.length > 1 && row[1]?.value != null) {
-              final valStr = row[1]!.value.toString();
+              final valStr = _excelCellText(row[1]!.value);
               if (valStr != '-' && valStr.isNotEmpty) {
                 tripDistance = double.tryParse(valStr.replaceAll(',', '.'));
               }
@@ -902,7 +842,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double? odometer;
             if (row.length > 2 && row[2]?.value != null) {
-              final valStr = row[2]!.value.toString();
+              final valStr = _excelCellText(row[2]!.value);
               if (valStr != '-' && valStr.isNotEmpty) {
                 odometer = double.tryParse(valStr.replaceAll(',', '.'));
               }
@@ -910,13 +850,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double cost = 0.0;
             if (row.length > 3 && row[3]?.value != null) {
-              final valStr = row[3]!.value.toString();
+              final valStr = _excelCellText(row[3]!.value);
               cost = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
             double liters = 0.0;
             if (row.length > 4 && row[4]?.value != null) {
-              final valStr = row[4]!.value.toString();
+              final valStr = _excelCellText(row[4]!.value);
               liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
@@ -1350,224 +1290,63 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Map<String, dynamic> _extractFuelData(String text) {
-    final normalized = text
-        .replaceAll('\u00A0', ' ')
-        .replaceAll(RegExp(r'[ ]+'), ' ')
-        .trim();
-    final upper = normalized.toUpperCase();
-
-    final detectedType = RegExp(r'\b(?:LPG|AUTOGAZ|GAZ)\b').hasMatch(upper)
-        ? FuelType.lpg
-        : FuelType.pb;
-
-    double? parseNumber(String? raw) {
-      if (raw == null) return null;
-      final value = raw
-          .replaceAll(' ', '')
-          .replaceAll(',', '.')
-          .replaceAll(RegExp(r'[^0-9.]'), '');
-      if (value.isEmpty || value.split('.').length > 2) return null;
-      return double.tryParse(value);
-    }
-
     double? detectedLiters;
-    final literPatterns = <RegExp>[
-      RegExp(
-        r'(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:L|LTR|LITR|LITRY|LITRÓW)\b',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'(?:ILOŚĆ|ILOSC|VOLUME|QTY)\s*[:=]?\s*'
-        r'(\d{1,3}(?:[.,]\d{1,3})?)',
-        caseSensitive: false,
-      ),
-    ];
-    for (final pattern in literPatterns) {
-      final value = parseNumber(pattern.firstMatch(normalized)?.group(1));
-      if (value != null && value > 0 && value <= 200) {
-        detectedLiters = value;
-        break;
-      }
-    }
-
-    double? detectedUnitPrice;
-    final unitPricePatterns = <RegExp>[
-      RegExp(
-        r'(?:CENA(?:\s+ZA)?\s*(?:1\s*)?L|CENA\s+JEDNOSTKOWA)'
-        r'\s*[:=]?\s*(\d{1,2}(?:[.,]\d{2,3}))',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'(\d{1,2}(?:[.,]\d{2,3}))\s*'
-        r'(?:PLN\s*/\s*L|ZŁ\s*/\s*L|ZL\s*/\s*L)',
-        caseSensitive: false,
-      ),
-    ];
-    for (final pattern in unitPricePatterns) {
-      final value = parseNumber(pattern.firstMatch(normalized)?.group(1));
-      if (value != null && value >= 1 && value <= 15) {
-        detectedUnitPrice = value;
-        break;
-      }
-    }
-
-    // Kandydaci otrzymują punkty za kontekst. Dzięki temu SUMA ma
-    // pierwszeństwo przed gotówką, resztą, VAT-em i ceną jednostkową.
-    final amountCandidates = <Map<String, dynamic>>[];
-
-    void addAmountCandidate(double? value, int score, String source) {
-      if (value == null || value <= 0 || value > 10000) return;
-      amountCandidates.add(<String, dynamic>{
-        'value': value,
-        'score': score,
-        'source': source,
-      });
-    }
-
-    final lines = normalized
-        .split(RegExp(r'[\r\n]+'))
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    final strongLabels = RegExp(
-      r'(?:DO\s+ZAPŁATY|DO\s+ZAPLATY|KWOTA\s+DO\s+ZAPŁATY|'
-      r'KWOTA\s+DO\s+ZAPLATY|NALEŻNOŚĆ|NALEZNOSC|SUMA\s+PLN|'
-      r'SUMA|RAZEM|TOTAL)',
-      caseSensitive: false,
-    );
-    final mediumLabels = RegExp(
-      r'(?:WARTOŚĆ|WARTOSC|KWOTA|ZAPŁATA|ZAPLATA|PŁATNOŚĆ|PLATNOSC)',
-      caseSensitive: false,
-    );
-    final excludedLabels = RegExp(
-      r'(?:VAT|PTU|PODATEK|NETTO|GOTÓWKA|GOTOWKA|RESZTA|KARTA|'
-      r'RABAT|CENA\s+JEDNOSTKOWA|CENA\s+ZA|PLN\s*/\s*L)',
-      caseSensitive: false,
-    );
-    final amountPattern = RegExp(r'(\d{1,6}(?:[.,]\d{2}))');
-
-    for (var index = 0; index < lines.length; index++) {
-      final line = lines[index];
-      final strong = strongLabels.hasMatch(line);
-      final medium = mediumLabels.hasMatch(line);
-      final excluded = excludedLabels.hasMatch(line);
-
-      if (strong || medium) {
-        final baseScore = strong ? 100 : 70;
-        for (final match in amountPattern.allMatches(line)) {
-          addAmountCandidate(
-            parseNumber(match.group(1)),
-            excluded ? baseScore - 60 : baseScore,
-            line,
-          );
-        }
-
-        // Obsługa wydruków, gdzie etykieta i kwota są w osobnych wierszach.
-        if (index + 1 < lines.length) {
-          final nextLine = lines[index + 1];
-          addAmountCandidate(
-            parseNumber(amountPattern.firstMatch(nextLine)?.group(1)),
-            excluded ? baseScore - 65 : baseScore - 5,
-            '$line | $nextLine',
-          );
-        }
-      }
-
-      final currencyMatches = RegExp(
-        r'(\d{1,6}(?:[.,]\d{2}))\s*(?:PLN|ZŁ|ZL)\b',
-        caseSensitive: false,
-      ).allMatches(line);
-      for (final match in currencyMatches) {
-        addAmountCandidate(
-          parseNumber(match.group(1)),
-          excluded ? 5 : 45,
-          line,
-        );
-      }
-    }
-
-    final expectedCost = detectedLiters != null && detectedUnitPrice != null
-        ? detectedLiters * detectedUnitPrice
-        : null;
-    for (final candidate in amountCandidates) {
-      final value = candidate['value'] as double;
-      var score = candidate['score'] as int;
-      if (expectedCost != null && expectedCost > 0) {
-        final relativeError = (value - expectedCost).abs() / expectedCost;
-        if (relativeError <= 0.02) {
-          score += 50;
-        } else if (relativeError <= 0.05) {
-          score += 30;
-        } else if (relativeError > 0.25) {
-          score -= 35;
-        }
-      }
-      candidate['score'] = score;
-    }
-    amountCandidates.sort((a, b) {
-      final scoreResult =
-          (b['score'] as int).compareTo(a['score'] as int);
-      if (scoreResult != 0) return scoreResult;
-      return (b['value'] as double).compareTo(a['value'] as double);
-    });
-
     double? detectedCost;
-    if (amountCandidates.isNotEmpty) {
-      detectedCost = amountCandidates.first['value'] as double;
-      debugPrint(
-        'OCR koszt: $detectedCost PLN, źródło: '
-        '${amountCandidates.first['source']}',
-      );
-    } else if (expectedCost != null) {
-      detectedCost = double.parse(expectedCost.toStringAsFixed(2));
-      debugPrint('OCR koszt wyliczony z litrów i ceny: $detectedCost PLN');
-    }
-
+    FuelType detectedType = FuelType.lpg;
     DateTime? detectedDate;
-    final ymd = RegExp(
-      r'\b(20\d{2})[-./](0?[1-9]|1[0-2])[-./]'
-      r'(0?[1-9]|[12]\d|3[01])\b',
-    ).firstMatch(normalized);
-    final dmy = RegExp(
-      r'\b(0?[1-9]|[12]\d|3[01])[-./](0?[1-9]|1[0-2])[-./]'
-      r'(20\d{2})\b',
-    ).firstMatch(normalized);
 
-    if (ymd != null) {
-      detectedDate = _validReceiptDate(
-        int.parse(ymd.group(1)!),
-        int.parse(ymd.group(2)!),
-        int.parse(ymd.group(3)!),
-      );
-    } else if (dmy != null) {
-      detectedDate = _validReceiptDate(
-        int.parse(dmy.group(3)!),
-        int.parse(dmy.group(2)!),
-        int.parse(dmy.group(1)!),
-      );
+    if (text.toUpperCase().contains('LPG') || text.toUpperCase().contains('AUTOGAZ')) {
+      detectedType = FuelType.lpg;
+    } else if (text.toUpperCase().contains('PB') || text.toUpperCase().contains('BENZYNA') || text.toUpperCase().contains('95') || text.toUpperCase().contains('98')) {
+      detectedType = FuelType.pb;
     }
 
-    return <String, dynamic>{
+    final RegExp litersRegex = RegExp(r'(\d+[\.,]\d{1,2})\s*(l|litr|litry|ltr)\b', caseSensitive: false);
+    final litersMatch = litersRegex.firstMatch(text);
+    if (litersMatch != null) {
+      String rawLiters = litersMatch.group(1)!.replaceAll(',', '.');
+      detectedLiters = double.tryParse(rawLiters);
+    }
+
+    final RegExp costRegex = RegExp(r'(?:suma|razem|kwota)\s*[:=]?\s*(\d+[\.,]\d{2})', caseSensitive: false);
+    final costMatch = costRegex.firstMatch(text);
+    if (costMatch != null) {
+      String rawCost = costMatch.group(1)!.replaceAll(',', '.');
+      detectedCost = double.tryParse(rawCost);
+    } else {
+      final RegExp plnRegex = RegExp(r'(\d+[\.,]\d{2})\s*(?:pln|zł)', caseSensitive: false);
+      final plnMatch = plnRegex.firstMatch(text);
+      if (plnMatch != null) {
+        String rawCost = plnMatch.group(1)!.replaceAll(',', '.');
+        detectedCost = double.tryParse(rawCost);
+      }
+    }
+
+    final regYMD = RegExp(r'\b(20\d{2})[-./](0[1-9]|1[0-2])[-./](0[1-9]|[12]\d|3[01])\b');
+    final matchYMD = regYMD.firstMatch(text);
+
+    if (matchYMD != null) {
+      int year = int.parse(matchYMD.group(1)!);
+      int month = int.parse(matchYMD.group(2)!);
+      int day = int.parse(matchYMD.group(3)!);
+      detectedDate = DateTime(year, month, day);
+    } else {
+      final regDMY = RegExp(r'\b(0[1-9]|[12]\d|3[01])[-./](0[1-9]|1[0-2])[-./](20\d{2})\b');
+      final matchDMY = regDMY.firstMatch(text);
+      if (matchDMY != null) {
+        int day = int.parse(matchDMY.group(1)!);
+        int month = int.parse(matchDMY.group(2)!);
+        int year = int.parse(matchDMY.group(3)!);
+        detectedDate = DateTime(year, month, day);
+      }
+    }
+
+    return {
       'cost': detectedCost,
       'liters': detectedLiters,
-      'unitPrice': detectedUnitPrice,
       'detectedType': detectedType,
       'date': detectedDate,
     };
-  }
-
-  DateTime? _validReceiptDate(int year, int month, int day) {
-    final candidate = DateTime(year, month, day);
-    if (candidate.year != year ||
-        candidate.month != month ||
-        candidate.day != day) {
-      return null;
-    }
-    if (candidate.isBefore(DateTime(2026, 1, 1)) ||
-        candidate.isAfter(DateTime.now())) {
-      return null;
-    }
-    return candidate;
   }
 
   void _showEntryFormDialog({
@@ -1694,7 +1473,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     final pickedDate = await showDatePicker(
                       context: context,
                       initialDate: selectedDate,
-                      firstDate: DateTime(2026, 1, 1),
+                      firstDate: DateTime(2020),
                       lastDate: DateTime.now(),
                     );
                     if (pickedDate != null) {
@@ -1870,82 +1649,149 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Generowanie pliku Excel...')),
+      const SnackBar(
+        content: Text('Generowanie pliku Excel...'),
+        duration: Duration(minutes: 1),
+      ),
     );
 
     try {
-      var excel = Excel.createExcel();
+      final excel = Excel.createExcel();
+
+      List<FuelEntry> entriesForType(FuelType type) {
+        return _entries.where((entry) => entry.fuelType == type).toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+      }
 
       void createSheetForType(String sheetName, FuelType type) {
-        Sheet sheetObject = excel[sheetName];
-        final list = _entriesForType(type); 
+        final sheet = excel[sheetName];
+        final entries = entriesForType(type);
 
-        sheetObject.appendRow([
-          'Data',
-          'Dystans (km)',
-          'Stan licznika (km)',
-          'Koszt (PLN)',
-          'Paliwo (L)',
-          'Pełny bak?',
-          'Spalanie (L/100km)',
+        sheet.appendRow(<CellValue?>[
+          TextCellValue('Data'),
+          TextCellValue('Dystans (km)'),
+          TextCellValue('Stan licznika (km)'),
+          TextCellValue('Koszt (PLN)'),
+          TextCellValue('Paliwo (L)'),
+          TextCellValue('Cena za litr (PLN/L)'),
+          TextCellValue('Pełny bak?'),
+          TextCellValue('Spalanie (L/100 km)'),
         ]);
 
-        for (var entry in list) {
-          sheetObject.appendRow([
-            '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
-            entry.tripDistance ?? '-',
-            entry.odometer ?? '-',
-            entry.cost,
-            entry.liters,
-            entry.isFullTank ? 'Tak' : 'Nie',
-            entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+        for (final entry in entries) {
+          final dateText =
+              '${entry.date.day.toString().padLeft(2, '0')}.'
+              '${entry.date.month.toString().padLeft(2, '0')}.'
+              '${entry.date.year}';
+          sheet.appendRow(<CellValue?>[
+            TextCellValue(dateText),
+            entry.tripDistance == null
+                ? null
+                : DoubleCellValue(entry.tripDistance!),
+            entry.odometer == null
+                ? null
+                : DoubleCellValue(entry.odometer!),
+            DoubleCellValue(double.parse(entry.cost.toStringAsFixed(2))),
+            DoubleCellValue(double.parse(entry.liters.toStringAsFixed(3))),
+            DoubleCellValue(
+              double.parse(entry.pricePerLiter.toStringAsFixed(3)),
+            ),
+            TextCellValue(entry.isFullTank ? 'Tak' : 'Nie'),
+            entry.singleConsumption == null
+                ? null
+                : DoubleCellValue(
+                    double.parse(
+                      entry.singleConsumption!.toStringAsFixed(2),
+                    ),
+                  ),
           ]);
         }
 
-        double totalCost = _totalCostFor(type);
-        double totalLiters = _totalLitersFor(type);
-        double? avgCons = _calculateConsumptionForList(list);
+        final totalCost = entries.fold<double>(
+          0,
+          (sum, entry) => sum + entry.cost,
+        );
+        final totalLiters = entries.fold<double>(
+          0,
+          (sum, entry) => sum + entry.liters,
+        );
+        final averageConsumption = _calculateConsumptionForList(entries);
 
-        sheetObject.appendRow([]);
-        sheetObject.appendRow([
-          'PODSUMOWANIE',
-          '-',
-          '-',
-          double.parse(totalCost.toStringAsFixed(2)),
-          double.parse(totalLiters.toStringAsFixed(2)),
-          '-',
-          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
+        sheet.appendRow(<CellValue?>[]);
+        sheet.appendRow(<CellValue?>[
+          TextCellValue('PODSUMOWANIE'),
+          null,
+          null,
+          DoubleCellValue(double.parse(totalCost.toStringAsFixed(2))),
+          DoubleCellValue(double.parse(totalLiters.toStringAsFixed(3))),
+          totalLiters <= 0
+              ? null
+              : DoubleCellValue(
+                  double.parse((totalCost / totalLiters).toStringAsFixed(3)),
+                ),
+          null,
+          averageConsumption == null
+              ? null
+              : DoubleCellValue(
+                  double.parse(averageConsumption.toStringAsFixed(2)),
+                ),
         ]);
       }
 
-      createSheetForType('LPG', FuelType.lpg);
-      createSheetForType('Benzyna (PB)', FuelType.pb);
+      // Nie wywołujemy delete() ani rename(). Domyślny arkusz jest używany
+      // dla LPG, co omija starszy błąd „unmodifiable list”.
+      createSheetForType('Sheet1', FuelType.lpg);
+      createSheetForType('Benzyna PB', FuelType.pb);
 
-      excel.delete('Sheet1'); 
-
-      final directory = await getTemporaryDirectory();
-      final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
-      final filePath = '${directory.path}/Raport_Paliwa_$dateStr.xlsx';
       final fileBytes = excel.save();
-
-      if (fileBytes != null) {
-        File(filePath)
-          ..createSync(recursive: true)
-          ..writeAsBytesSync(fileBytes);
-        
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        
-        await Share.shareXFiles(
-          [XFile(filePath)], 
-          subject: 'Raport z aplikacji Fuel App',
-          text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
+      if (fileBytes == null || fileBytes.isEmpty) {
+        throw const FileSystemException(
+          'Pakiet Excel nie wygenerował danych pliku.',
         );
       }
-    } catch (e) {
+
+      final directory = await getTemporaryDirectory();
+      final now = DateTime.now();
+      final timestamp =
+          '${now.year}'
+          '${now.month.toString().padLeft(2, '0')}'
+          '${now.day.toString().padLeft(2, '0')}_'
+          '${now.hour.toString().padLeft(2, '0')}'
+          '${now.minute.toString().padLeft(2, '0')}'
+          '${now.second.toString().padLeft(2, '0')}';
+      final reportFile = File(
+        '${directory.path}/Raport_Paliwa_$timestamp.xlsx',
+      );
+      await reportFile.writeAsBytes(fileBytes, flush: true);
+
+      if (!await reportFile.exists() || await reportFile.length() == 0) {
+        throw const FileSystemException('Utworzony plik Excel jest pusty.');
+      }
+
       if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      await Share.shareXFiles(
+        <XFile>[
+          XFile(
+            reportFile.path,
+            mimeType:
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ),
+        ],
+        subject: 'Raport z aplikacji Fuel App',
+        text: 'Raport tankowań LPG i benzyny w formacie XLSX.',
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Błąd eksportu XLSX: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Błąd podczas eksportu: $e')),
+        const SnackBar(
+          content: Text(
+            'Nie udało się utworzyć raportu XLSX. Spróbuj ponownie.',
+          ),
+        ),
       );
     }
   }
