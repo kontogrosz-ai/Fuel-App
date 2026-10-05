@@ -152,7 +152,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (entry.isFullTank) {
           if (lastFullTank != null && distance != null && distance > 0) {
-            // Zużycie liczymy z litrów zatankowanych od ostatniego pełnego boku do obecnego pełnego baku
             double totalLitersBetween = 0;
             bool foundPrevious = false;
             for (var e in typeEntries) {
@@ -167,7 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
           }
           lastFullTank = entry;
         } else {
-          // Jeśli nie pełny, szacujemy uproszczone spalanie bieżące jeśli podano dystans
           if (distance != null && distance > 0) {
             entry.singleConsumption = (entry.liters * 100) / distance;
           } else {
@@ -217,7 +215,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final buffer = StringBuffer();
       
-      // Nagłówek pliku CSV (średnik jako separator)
       buffer.writeln('Typ Paliwa;Data;Dystans (km);Stan licznika (km);Koszt (PLN);Paliwo (L);Pełny bak?;Spalanie (L/100km)');
 
       final sortedEntries = List<FuelEntry>.from(_entriesNotifier.value)
@@ -261,6 +258,91 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Błąd podczas eksportu do CSV: $e')),
+      );
+    }
+  }
+
+  // Import z pliku CSV
+  Future<void> _importCsv() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final lines = await file.readAsLines(encoding: utf8);
+
+        if (lines.isEmpty) return;
+
+        List<FuelEntry> importedEntries = [];
+
+        for (int i = 1; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.isEmpty) continue;
+          
+          if (line.startsWith('PODSUMOWANIE')) continue;
+
+          final parts = line.split(';');
+          if (parts.length >= 8) {
+            try {
+              FuelType type = parts[0].contains('LPG') ? FuelType.lpg : FuelType.pb;
+
+              final dateParts = parts[1].split('.');
+              DateTime date = DateTime.now();
+              if (dateParts.length == 3) {
+                int day = int.parse(dateParts[0]);
+                int month = int.parse(dateParts[1]);
+                int year = int.parse(dateParts[2]);
+                date = DateTime(year, month, day);
+              }
+
+              double? trip = parts[2] == '-' ? null : double.tryParse(parts[2].replaceAll(',', '.'));
+              double? odo = parts[3] == '-' ? null : double.tryParse(parts[3].replaceAll(',', '.'));
+
+              double cost = double.parse(parts[4].replaceAll(',', '.'));
+              double liters = double.parse(parts[5].replaceAll(',', '.'));
+              bool isFull = parts[6] == 'Tak';
+
+              importedEntries.add(FuelEntry(
+                id: DateTime.now().millisecondsSinceEpoch.toString() + i.toString(),
+                fuelType: type,
+                date: date,
+                cost: cost,
+                liters: liters,
+                odometer: odo,
+                tripDistance: trip,
+                isFullTank: isFull,
+              ));
+            } catch (e) {
+              debugPrint('Błąd parsowania linii $i: $e');
+            }
+          }
+        }
+
+        if (importedEntries.isNotEmpty) {
+          final currentList = List<FuelEntry>.from(_entriesNotifier.value);
+          currentList.addAll(importedEntries);
+          _recalculateConsumptions(currentList);
+          _entriesNotifier.value = currentList;
+          _saveEntries();
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Pomyślnie zaimportowano ${importedEntries.length} wpisów z CSV!')),
+          );
+        } else {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nie znaleziono poprawnych danych w pliku CSV.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd importu CSV: $e')),
       );
     }
   }
@@ -344,8 +426,6 @@ class _HomeScreenState extends State<HomeScreen> {
             detectedType = FuelType.pb;
           }
 
-          // Próba znalezienia liczb (ceny / litry)
-          // Szukamy formatów np. 50.00 lub 50,00
           final RegExp regExp = RegExp(r'\d+[,\.]\d{2}');
           final matches = regExp.allMatches(text);
           for (var match in matches) {
@@ -409,7 +489,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _parseVoiceText(String text) {
-    // Prosty parser tekstu mowy, np. "tankowanie lpg koszt 100 zł 30 litrów"
     double? cost;
     double? liters;
     FuelType type = FuelType.lpg;
@@ -604,10 +683,18 @@ class _HomeScreenState extends State<HomeScreen> {
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.file_upload),
-                title: const Text('Importuj z JSON'),
+                title: const Text('Importuj z JSON (Backup)'),
                 onTap: () {
                   Navigator.pop(context);
                   _importJson();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.table_chart),
+                title: const Text('Importuj z CSV (Raport)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _importCsv();
                 },
               ),
             ],
