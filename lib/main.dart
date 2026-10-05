@@ -119,8 +119,7 @@ class FilterResult {
 }
 
 // --- ALGORYTM FILTRUJĄCY DANE ---
-DateTime _dateOnly(DateTime value) =>
-    DateTime(value.year, value.month, value.day);
+DateTime _dateOnly(DateTime value) => DateTime(value.year, value.month, value.day);
 
 DateTime _subtractMonths(DateTime value, int months) {
   final firstDayOfTargetMonth = DateTime(value.year, value.month - months);
@@ -141,8 +140,7 @@ FilterResult applyFuelFilter(
   List<FuelEntry> allEntries,
   FuelFilterState filterState,
 ) {
-  final sorted = List<FuelEntry>.from(allEntries)
-    ..sort((a, b) => b.date.compareTo(a.date));
+  final sorted = List<FuelEntry>.from(allEntries)..sort((a, b) => b.date.compareTo(a.date));
   if (sorted.isEmpty) {
     return FilterResult(
       filteredEntries: const [],
@@ -202,11 +200,9 @@ FilterResult applyFuelFilter(
         CountFilterOption.cAll => 'Wszystkie tankowania',
       };
       result = sorted.take(targetCount).toList();
-      if (filterState.countOption != CountFilterOption.cAll &&
-          sorted.length < targetCount) {
+      if (filterState.countOption != CountFilterOption.cAll && sorted.length < targetCount) {
         limited = true;
-        info +=
-            ' (Dostępne tylko ${sorted.length} z żądanych $targetCount tankowań)';
+        info += ' (Dostępne tylko ${sorted.length} z żądanych $targetCount tankowań)';
       }
       break;
 
@@ -231,8 +227,7 @@ FilterResult applyFuelFilter(
       }
       if (targetKm.isFinite && accumulatedKm < targetKm) {
         limited = true;
-        info +=
-            ' (Osiągnięto maksymalny dostępny dystans: ${accumulatedKm.toStringAsFixed(0)} km)';
+        info += ' (Osiągnięto maksymalny dostępny dystans: ${accumulatedKm.toStringAsFixed(0)} km)';
       }
       break;
 
@@ -248,8 +243,7 @@ FilterResult applyFuelFilter(
       result = sorted.where((entry) {
         return !entry.date.isBefore(start) && entry.date.isBefore(endExclusive);
       }).toList();
-      info =
-          'Zakres: ${start.day}.${start.month}.${start.year} - ${range.end.day}.${range.end.month}.${range.end.year}';
+      info = 'Zakres: ${start.day}.${start.month}.${start.year} - ${range.end.day}.${range.end.month}.${range.end.year}';
       break;
   }
 
@@ -260,7 +254,7 @@ FilterResult applyFuelFilter(
   );
 }
 
-// --- KOMPONENT UI FILTRA (UKŁAD 2x2) ---
+// --- KOMPONENT UI FILTRA ---
 class FuelFilterWidget extends StatefulWidget {
   final FuelFilterState initialFilterState;
   final ValueChanged<FuelFilterState> onFilterChanged;
@@ -315,26 +309,10 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
               mainAxisSpacing: 8,
               childAspectRatio: 2.8,
               children: [
-                _buildFilterTile(
-                  mode: FilterMainMode.time,
-                  label: 'Czas',
-                  icon: Icons.access_time,
-                ),
-                _buildFilterTile(
-                  mode: FilterMainMode.count,
-                  label: 'Ilość',
-                  icon: Icons.format_list_numbered,
-                ),
-                _buildFilterTile(
-                  mode: FilterMainMode.distance,
-                  label: 'Dystans',
-                  icon: Icons.map,
-                ),
-                _buildFilterTile(
-                  mode: FilterMainMode.custom,
-                  label: 'Własny',
-                  icon: Icons.date_range,
-                ),
+                _buildFilterTile(mode: FilterMainMode.time, label: 'Czas', icon: Icons.access_time),
+                _buildFilterTile(mode: FilterMainMode.count, label: 'Ilość', icon: Icons.format_list_numbered),
+                _buildFilterTile(mode: FilterMainMode.distance, label: 'Dystans', icon: Icons.map),
+                _buildFilterTile(mode: FilterMainMode.custom, label: 'Własny', icon: Icons.date_range),
               ],
             ),
             const SizedBox(height: 12),
@@ -342,9 +320,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
             const SizedBox(height: 12),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _buildSubOptionsChips(),
-              ),
+              child: Row(children: _buildSubOptionsChips()),
             ),
           ],
         ),
@@ -352,11 +328,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
     );
   }
 
-  Widget _buildFilterTile({
-    required FilterMainMode mode,
-    required String label,
-    required IconData icon,
-  }) {
+  Widget _buildFilterTile({required FilterMainMode mode, required String label, required IconData icon}) {
     final isSelected = _currentFilter.mainMode == mode;
     final theme = Theme.of(context);
 
@@ -376,9 +348,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected
-                    ? theme.colorScheme.onPrimaryContainer
-                    : theme.colorScheme.onSurface,
+                color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface,
               ),
               const SizedBox(width: 8),
               Text(
@@ -386,9 +356,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected
-                      ? theme.colorScheme.onPrimaryContainer
-                      : theme.colorScheme.onSurface,
+                  color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface,
                 ),
               ),
             ],
@@ -401,66 +369,52 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
   List<Widget> _buildSubOptionsChips() {
     List<Widget> chips = [];
 
+    Widget buildChip<T>(String label, T option, T currentOption, void Function(T) onSelected) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8.0),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: currentOption == option,
+          onSelected: (selected) {
+            if (selected) onSelected(option);
+          },
+        ),
+      );
+    }
+
     if (_currentFilter.mainMode == FilterMainMode.time) {
+      final labels = {
+        TimeFilterOption.month1: '1 miesiąc',
+        TimeFilterOption.months3: '3 miesiące',
+        TimeFilterOption.months6: '6 miesięcy',
+        TimeFilterOption.year1: '1 rok',
+        TimeFilterOption.all: 'Wszystko',
+      };
       for (var option in TimeFilterOption.values) {
-        String label = '';
-        switch (option) {
-          case TimeFilterOption.month1: label = '1 miesiąc'; break;
-          case TimeFilterOption.months3: label = '3 miesiące'; break;
-          case TimeFilterOption.months6: label = '6 miesięcy'; break;
-          case TimeFilterOption.year1: label = '1 rok'; break;
-          case TimeFilterOption.all: label = 'Wszystko'; break;
-        }
-        chips.add(Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: _currentFilter.timeOption == option,
-            onSelected: (selected) {
-              if (selected) _update(_currentFilter.copyWith(timeOption: option));
-            },
-          ),
-        ));
+        chips.add(buildChip(labels[option]!, option, _currentFilter.timeOption, 
+            (val) => _update(_currentFilter.copyWith(timeOption: val))));
       }
     } else if (_currentFilter.mainMode == FilterMainMode.count) {
+      final labels = {
+        CountFilterOption.c5: 'Ostatnie 5',
+        CountFilterOption.c10: 'Ostatnie 10',
+        CountFilterOption.c20: 'Ostatnie 20',
+        CountFilterOption.cAll: 'Wszystkie',
+      };
       for (var option in CountFilterOption.values) {
-        String label = '';
-        switch (option) {
-          case CountFilterOption.c5: label = 'Ostatnie 5'; break;
-          case CountFilterOption.c10: label = 'Ostatnie 10'; break;
-          case CountFilterOption.c20: label = 'Ostatnie 20'; break;
-          case CountFilterOption.cAll: label = 'Wszystkie'; break;
-        }
-        chips.add(Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: _currentFilter.countOption == option,
-            onSelected: (selected) {
-              if (selected) _update(_currentFilter.copyWith(countOption: option));
-            },
-          ),
-        ));
+        chips.add(buildChip(labels[option]!, option, _currentFilter.countOption, 
+            (val) => _update(_currentFilter.copyWith(countOption: val))));
       }
     } else if (_currentFilter.mainMode == FilterMainMode.distance) {
+      final labels = {
+        DistanceFilterOption.km500: '500 km',
+        DistanceFilterOption.km1000: '1000 km',
+        DistanceFilterOption.km5000: '5000 km',
+        DistanceFilterOption.kmAll: 'Cały dystans',
+      };
       for (var option in DistanceFilterOption.values) {
-        String label = '';
-        switch (option) {
-          case DistanceFilterOption.km500: label = '500 km'; break;
-          case DistanceFilterOption.km1000: label = '1000 km'; break;
-          case DistanceFilterOption.km5000: label = '5000 km'; break;
-          case DistanceFilterOption.kmAll: label = 'Cały dystans'; break;
-        }
-        chips.add(Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: _currentFilter.distanceOption == option,
-            onSelected: (selected) {
-              if (selected) _update(_currentFilter.copyWith(distanceOption: option));
-            },
-          ),
-        ));
+        chips.add(buildChip(labels[option]!, option, _currentFilter.distanceOption, 
+            (val) => _update(_currentFilter.copyWith(distanceOption: val))));
       }
     } else if (_currentFilter.mainMode == FilterMainMode.custom) {
       chips.add(
@@ -472,7 +426,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
           onPressed: () async {
             final picked = await showDateRangePicker(
               context: context,
-              firstDate: DateTime(2026),
+              firstDate: DateTime(2020),
               lastDate: DateTime.now(),
               initialDateRange: _currentFilter.customDateRange,
             );
@@ -571,26 +525,111 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  List<FuelEntry> _entries = [];
+  // WZORZEC OBSERWATORA - ValueNotifier zamiast przebudowywania całego drzewa przez setState
+  final ValueNotifier<List<FuelEntry>> _entriesNotifier = ValueNotifier([]);
+  final ValueNotifier<FuelFilterState> _fuelFilterNotifier = ValueNotifier(FuelFilterState());
+  final ValueNotifier<FuelFilterState> _chartsFilterNotifier = ValueNotifier(FuelFilterState());
+  final ValueNotifier<FuelType> _chartFuelTypeNotifier = ValueNotifier(FuelType.lpg);
+
   bool _isScanning = false;
   bool _isLoading = true;
   late TabController _tabController;
 
-  FuelType _chartFuelType = FuelType.lpg;
-  FuelFilterState _fuelFilterState = FuelFilterState();
-  
-  // Niezależny stan filtra dla zakładki Wykresy
-  FuelFilterState _chartsFilterState = FuelFilterState();
-
-  // --- SPEECH TO TEXT ---
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
+
+  // --- MEMOIZATION (CACHE) ---
+  // Zmienne przechowujące przeliczone statystyki, by nie wyliczać ich przy każdym build()
+  FilterResult? _lpgFuelTabCache;
+  FilterResult? _pbFuelTabCache;
+  double? _lpgFuelTabAvg;
+  double? _pbFuelTabAvg;
+
+  FilterResult? _chartFilterCache;
+  Map<String, double> _chartDataCache = {};
+
+  double _statsTotalCostAll = 0.0;
+  double _statsTotalLpgCost = 0.0;
+  double _statsTotalPbCost = 0.0;
+  double _statsTotalLpgLiters = 0.0;
+  double _statsTotalPbLiters = 0.0;
+  double? _statsAvgLpgCons;
+  double? _statsAvgPbCons;
+  int _statsLpgCount = 0;
+  int _statsPbCount = 0;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
+    
+    // Dodajemy listenery wyzwalające przeliczanie CACHE tylko przy zmianach danych
+    _entriesNotifier.addListener(_onEntriesChanged);
+    _fuelFilterNotifier.addListener(_updateFuelTabCache);
+    _chartsFilterNotifier.addListener(_updateChartCache);
+    _chartFuelTypeNotifier.addListener(_updateChartCache);
+    
     _initialize();
+  }
+
+  void _onEntriesChanged() {
+    _updateFuelTabCache();
+    _updateChartCache();
+    _updateGlobalStatsCache();
+  }
+
+  void _updateFuelTabCache() {
+    final entries = _entriesNotifier.value;
+    final lpgEntries = entries.where((e) => e.fuelType == FuelType.lpg).toList();
+    final pbEntries = entries.where((e) => e.fuelType == FuelType.pb).toList();
+
+    _lpgFuelTabCache = applyFuelFilter(lpgEntries, _fuelFilterNotifier.value);
+    _pbFuelTabCache = applyFuelFilter(pbEntries, _fuelFilterNotifier.value);
+    
+    _lpgFuelTabAvg = _calculateConsumptionForList(_lpgFuelTabCache!.filteredEntries);
+    _pbFuelTabAvg = _calculateConsumptionForList(_pbFuelTabCache!.filteredEntries);
+  }
+
+  void _updateChartCache() {
+    final entries = _entriesNotifier.value;
+    final type = _chartFuelTypeNotifier.value;
+    final typeEntries = entries.where((e) => e.fuelType == type).toList();
+    
+    _chartFilterCache = applyFuelFilter(typeEntries, _chartsFilterNotifier.value);
+    
+    final Map<String, List<FuelEntry>> monthlyGroups = {};
+    for (var entry in _chartFilterCache!.filteredEntries) {
+      final monthKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
+      monthlyGroups.putIfAbsent(monthKey, () => []).add(entry);
+    }
+
+    final Map<String, double> newAverages = {};
+    monthlyGroups.forEach((month, list) {
+      final avg = _calculateConsumptionForList(list);
+      if (avg != null) {
+        newAverages[month] = avg;
+      }
+    });
+    _chartDataCache = newAverages;
+  }
+
+  void _updateGlobalStatsCache() {
+    final entries = _entriesNotifier.value;
+    final lpgEntries = entries.where((e) => e.fuelType == FuelType.lpg).toList();
+    final pbEntries = entries.where((e) => e.fuelType == FuelType.pb).toList();
+
+    _statsTotalLpgCost = lpgEntries.fold(0.0, (sum, e) => sum + e.cost);
+    _statsTotalPbCost = pbEntries.fold(0.0, (sum, e) => sum + e.cost);
+    _statsTotalCostAll = _statsTotalLpgCost + _statsTotalPbCost;
+
+    _statsTotalLpgLiters = lpgEntries.fold(0.0, (sum, e) => sum + e.liters);
+    _statsTotalPbLiters = pbEntries.fold(0.0, (sum, e) => sum + e.liters);
+
+    _statsAvgLpgCons = _calculateConsumptionForList(lpgEntries);
+    _statsAvgPbCons = _calculateConsumptionForList(pbEntries);
+
+    _statsLpgCount = lpgEntries.length;
+    _statsPbCount = pbEntries.length;
   }
 
   Future<void> _initialize() async {
@@ -601,6 +640,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _tabController.dispose();
+    _entriesNotifier.dispose();
+    _fuelFilterNotifier.dispose();
+    _chartsFilterNotifier.dispose();
+    _chartFuelTypeNotifier.dispose();
     super.dispose();
   }
 
@@ -628,10 +671,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         }
       }
       if (!mounted) return;
-      setState(() {
-        _entries = loaded;
-        _isLoading = false;
-      });
+      _entriesNotifier.value = loaded; 
+      setState(() => _isLoading = false);
     } catch (error, stackTrace) {
       debugPrint('Błąd wczytywania danych: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -647,7 +688,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       final file = await _getJsonFile();
       final temporaryFile = File('${file.path}.tmp');
-      final jsonList = _entries.map((entry) => entry.toJson()).toList();
+      final jsonList = _entriesNotifier.value.map((entry) => entry.toJson()).toList();
       await temporaryFile.writeAsString(jsonEncode(jsonList), flush: true);
       if (await file.exists()) await file.delete();
       await temporaryFile.rename(file.path);
@@ -667,7 +708,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _exportJson() async {
     try {
       final file = await _getJsonFile();
-      if (!await file.exists() || _entries.isEmpty) {
+      if (!await file.exists() || _entriesNotifier.value.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Brak danych do wyeksportowania.')),
@@ -713,9 +754,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               OutlinedButton(
                 onPressed: () {
-                  setState(() {
-                    _entries = importedEntries;
-                  });
+                  _entriesNotifier.value = importedEntries;
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
                   if (mounted) {
@@ -728,13 +767,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ElevatedButton(
                 onPressed: () {
-                  setState(() {
-                    for (var entry in importedEntries) {
-                      if (!_entries.any((e) => e.id == entry.id)) {
-                        _entries.add(entry);
-                      }
+                  final newList = List<FuelEntry>.from(_entriesNotifier.value);
+                  for (var entry in importedEntries) {
+                    if (!newList.any((e) => e.id == entry.id)) {
+                      newList.add(entry);
                     }
-                  });
+                  }
+                  _entriesNotifier.value = newList;
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
                   if (mounted) {
@@ -880,9 +919,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               OutlinedButton(
                 onPressed: () {
-                  setState(() {
-                    _entries = importedEntries;
-                  });
+                  _entriesNotifier.value = importedEntries;
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
                   if (mounted) {
@@ -895,20 +932,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               ElevatedButton(
                 onPressed: () {
-                  setState(() {
-                    for (var entry in importedEntries) {
-                      bool exists = _entries.any((e) => 
-                        e.date.year == entry.date.year &&
-                        e.date.month == entry.date.month &&
-                        e.date.day == entry.date.day &&
-                        e.cost == entry.cost &&
-                        e.liters == entry.liters
-                      );
-                      if (!_exists) {
-                        _entries.add(entry);
-                      }
+                  final newList = List<FuelEntry>.from(_entriesNotifier.value);
+                  for (var entry in importedEntries) {
+                    // POPRAWKA: Prawidłowa nazwa zmiennej exists
+                    bool exists = newList.any((e) => 
+                      e.date.year == entry.date.year &&
+                      e.date.month == entry.date.month &&
+                      e.date.day == entry.date.day &&
+                      e.cost == entry.cost &&
+                      e.liters == entry.liters
+                    );
+                    if (!exists) {
+                      newList.add(entry);
                     }
-                  });
+                  }
+                  _entriesNotifier.value = newList;
                   _saveEntriesToFile();
                   Navigator.pop(ctx);
                   if (mounted) {
@@ -1118,26 +1156,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _isListening = false;
   }
 
-  FilterResult _getFilterResultForType(FuelType type) {
-    final typeEntries = _entries.where((e) => e.fuelType == type).toList();
-    return applyFuelFilter(typeEntries, _fuelFilterState);
-  }
-
-  FilterResult _getChartFilterResultForType(FuelType type) {
-    final typeEntries = _entries.where((e) => e.fuelType == type).toList();
-    return applyFuelFilter(typeEntries, _chartsFilterState);
-  }
-
-  List<FuelEntry> _entriesForType(FuelType type) {
-    return _getFilterResultForType(type).filteredEntries;
-  }
-
-  double _totalCostFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
-
-  double _totalLitersFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
-
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
 
@@ -1202,12 +1220,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _deleteEntry(FuelEntry entry) {
-    final index = _entries.indexWhere((e) => e.id == entry.id);
+    final newList = List<FuelEntry>.from(_entriesNotifier.value);
+    final index = newList.indexWhere((e) => e.id == entry.id);
     if (index == -1) return;
 
-    setState(() {
-      _entries.removeAt(index);
-    });
+    newList.removeAt(index);
+    _entriesNotifier.value = newList;
     _saveEntriesToFile();
 
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -1217,9 +1235,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         action: SnackBarAction(
           label: 'COFNIJ',
           onPressed: () {
-            setState(() {
-              _entries.insert(index, entry);
-            });
+            final restoreList = List<FuelEntry>.from(_entriesNotifier.value);
+            restoreList.insert(index, entry);
+            _entriesNotifier.value = restoreList;
             _saveEntriesToFile();
           },
         ),
@@ -1360,7 +1378,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
 
     double? previousOdometer(DateTime before) {
-      final candidates = _entries
+      final candidates = _entriesNotifier.value
           .where((entry) =>
               entry.id != entryToEdit?.id &&
               entry.odometer != null &&
@@ -1451,7 +1469,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     final pickedDate = await showDatePicker(
                       context: context,
                       initialDate: selectedDate,
-                      firstDate: DateTime(2026),
+                      firstDate: DateTime(2020),
                       lastDate: DateTime.now(),
                     );
                     if (pickedDate != null) {
@@ -1592,16 +1610,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   isFullTank: isFullTank,
                 );
 
-                setState(() {
-                  if (isEditing) {
-                    final index = _entries.indexWhere((e) => e.id == entryToEdit.id);
-                    if (index != -1) {
-                      _entries[index] = newEntry;
-                    }
-                  } else {
-                    _entries.add(newEntry);
+                final newList = List<FuelEntry>.from(_entriesNotifier.value);
+                if (isEditing) {
+                  final index = newList.indexWhere((e) => e.id == entryToEdit.id);
+                  if (index != -1) {
+                    newList[index] = newEntry;
                   }
-                });
+                } else {
+                  newList.add(newEntry);
+                }
+                
+                _entriesNotifier.value = newList;
                 _saveEntriesToFile();
                 Navigator.pop(ctx);
               },
@@ -1618,9 +1637,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
-  // --- ZPOPRAWIONY EXPORT DO EXCELA KOMPATYBILNY Z NOWĄ WERSJĄ PACZKI EXCEL ---
   Future<void> _exportToExcel() async {
-    if (_entries.isEmpty) {
+    if (_entriesNotifier.value.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Brak danych do wyeksportowania.')),
       );
@@ -1637,7 +1655,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       void createSheetForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
-        final list = _entriesForType(type);
+        final list = _entriesNotifier.value.where((e) => e.fuelType == type).toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
         sheetObject.appendRow([
           TextCellValue('Data'),
@@ -1663,8 +1682,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ]);
         }
 
-        double totalCost = _totalCostFor(type);
-        double totalLiters = _totalLitersFor(type);
+        double totalCost = list.fold(0.0, (sum, e) => sum + e.cost);
+        double totalLiters = list.fold(0.0, (sum, e) => sum + e.liters);
         double? avgCons = _calculateConsumptionForList(list);
 
         sheetObject.appendRow([]);
@@ -1851,386 +1870,368 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildFuelTab(FuelType type) {
-    final filterResult = _getFilterResultForType(type);
-    final entries = filterResult.filteredEntries;
-    final avgConsumption = _calculateConsumptionForList(entries);
+    // ListenableBuilder przebudowuje ten fragment UI, kiedy zmieni się baza entries LUB filtr.
+    return ListenableBuilder(
+      listenable: Listenable.merge([_entriesNotifier, _fuelFilterNotifier]),
+      builder: (context, child) {
+        // Dane pobieramy z przygotowanego w listenerach Cache
+        final filterResult = type == FuelType.lpg ? _lpgFuelTabCache! : _pbFuelTabCache!;
+        final entries = filterResult.filteredEntries;
+        final avgConsumption = type == FuelType.lpg ? _lpgFuelTabAvg : _pbFuelTabAvg;
 
-    return Column(
-      children: [
-        FuelFilterWidget(
-          initialFilterState: _fuelFilterState,
-          onFilterChanged: (newState) {
-            setState(() {
-              _fuelFilterState = newState;
-            });
-          },
-        ),
-        if (filterResult.infoMessage.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-            child: Row(
-              children: [
-                Icon(
-                  filterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
-                  size: 14,
-                  color: filterResult.isDataLimited ? Colors.orange : Colors.grey,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    filterResult.infoMessage,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: filterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
+        return Column(
+          children: [
+            FuelFilterWidget(
+              initialFilterState: _fuelFilterNotifier.value,
+              onFilterChanged: (newState) => _fuelFilterNotifier.value = newState,
+            ),
+            if (filterResult.infoMessage.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+                child: Row(
+                  children: [
+                    Icon(
+                      filterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
+                      size: 14,
+                      color: filterResult.isDataLimited ? Colors.orange : Colors.grey,
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        Card(
-          margin: const EdgeInsets.all(12),
-          elevation: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildStatItem(
-                  'Średnie spalanie (${type.label})',
-                  avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} L/100km' : 'Brak danych',
-                ),
-              ],
-            ),
-          ),
-        ),
-        Expanded(
-          child: entries.isEmpty
-              ? Center(
-                  child: Text(
-                    'Brak wpisów dla ${type.label.toLowerCase()}',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: entries.length,
-                  itemBuilder: (context, index) {
-                    final entry = entries[index];
-                    return Dismissible(
-                      key: Key(entry.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        color: Colors.red,
-                        child: const Icon(Icons.delete, color: Colors.white),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        filterResult.infoMessage,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: filterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
+                        ),
                       ),
-                      confirmDismiss: (direction) async {
-                        return await showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Potwierdzenie'),
-                            content: const Text('Czy na pewno chcesz usunąć ten wpis?'),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(false),
-                                child: const Text('Anuluj'),
+                    ),
+                  ],
+                ),
+              ),
+            Card(
+              margin: const EdgeInsets.all(12),
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildStatItem(
+                      'Średnie spalanie (${type.label})',
+                      avgConsumption != null ? '${avgConsumption.toStringAsFixed(2)} L/100km' : 'Brak danych',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: entries.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Brak wpisów dla ${type.label.toLowerCase()}',
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: entries.length,
+                      itemBuilder: (context, index) {
+                        final entry = entries[index];
+                        return Dismissible(
+                          key: Key(entry.id),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            color: Colors.red,
+                            child: const Icon(Icons.delete, color: Colors.white),
+                          ),
+                          confirmDismiss: (direction) async {
+                            return await showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Potwierdzenie'),
+                                content: const Text('Czy na pewno chcesz usunąć ten wpis?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    child: const Text('Anuluj'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(true),
+                                    child: const Text('Usuń', style: TextStyle(color: Colors.red)),
+                                  ),
+                                ],
                               ),
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(true),
-                                child: const Text('Usuń', style: TextStyle(color: Colors.red)),
+                            );
+                          },
+                          onDismissed: (direction) => _deleteEntry(entry),
+                          child: Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: type == FuelType.lpg ? Colors.amber.shade700 : Colors.blue.shade700,
+                                child: Icon(
+                                  type == FuelType.lpg ? Icons.propane_tank : Icons.local_gas_station,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ],
+                              title: Text(
+                                '${entry.cost.toStringAsFixed(2)} PLN (${entry.liters.toStringAsFixed(2)} L)',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Text(
+                                'Data: ${entry.date.day}.${entry.date.month}.${entry.date.year}'
+                                '${!entry.isFullTank ? ' • [Nie do pełna]' : ''}'
+                                '${entry.tripDistance != null ? ' • Dystans: ${entry.tripDistance} km' : ''}'
+                                '${entry.odometer != null ? ' • Licznik: ${entry.odometer} km' : ''}'
+                                '${entry.singleConsumption != null ? '\nSpalanie: ${entry.singleConsumption!.toStringAsFixed(2)} L/100km' : ''}',
+                              ),
+                              isThreeLine: entry.singleConsumption != null || entry.odometer != null || !entry.isFullTank,
+                              trailing: IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.grey),
+                                onPressed: () => _showEntryFormDialog(entryToEdit: entry),
+                              ),
+                            ),
                           ),
                         );
                       },
-                      onDismissed: (direction) {
-                        _deleteEntry(entry);
-                      },
-                      child: Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: type == FuelType.lpg ? Colors.amber.shade700 : Colors.blue.shade700,
-                            child: Icon(
-                              type == FuelType.lpg ? Icons.propane_tank : Icons.local_gas_station,
-                              color: Colors.white,
-                            ),
-                          ),
-                          title: Text(
-                            '${entry.cost.toStringAsFixed(2)} PLN (${entry.liters.toStringAsFixed(2)} L)',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            'Data: ${entry.date.day}.${entry.date.month}.${entry.date.year}'
-                            '${!entry.isFullTank ? ' • [Nie do pełna]' : ''}'
-                            '${entry.tripDistance != null ? ' • Dystans: ${entry.tripDistance} km' : ''}'
-                            '${entry.odometer != null ? ' • Licznik: ${entry.odometer} km' : ''}'
-                            '${entry.singleConsumption != null ? '\nSpalanie: ${entry.singleConsumption!.toStringAsFixed(2)} L/100km' : ''}',
-                          ),
-                          isThreeLine: entry.singleConsumption != null || entry.odometer != null || !entry.isFullTank,
-                          trailing: IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.grey),
-                            onPressed: () => _showEntryFormDialog(entryToEdit: entry),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildChartsTab() {
-    final chartFilterResult = _getChartFilterResultForType(_chartFuelType);
-    final chartEntries = chartFilterResult.filteredEntries;
+    return ListenableBuilder(
+      listenable: Listenable.merge([_entriesNotifier, _chartsFilterNotifier, _chartFuelTypeNotifier]),
+      builder: (context, child) {
+        // Dane pobierane z Cache
+        final chartFilterResult = _chartFilterCache!;
+        final monthlyAverages = _chartDataCache;
+        final currentType = _chartFuelTypeNotifier.value;
 
-    final Map<String, List<FuelEntry>> monthlyGroups = {};
-    for (var entry in chartEntries) {
-      final monthKey = '${entry.date.year}-${entry.date.month.toString().padLeft(2, '0')}';
-      monthlyGroups.putIfAbsent(monthKey, () => []).add(entry);
-    }
-
-    final Map<String, double> monthlyAverages = {};
-    monthlyGroups.forEach((month, list) {
-      final avg = _calculateConsumptionForList(list);
-      if (avg != null) {
-        monthlyAverages[month] = avg;
-      }
-    });
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SegmentedButton<FuelType>(
-                  segments: const [
-                    ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
-                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SegmentedButton<FuelType>(
+                      segments: const [
+                        ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+                        ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
+                      ],
+                      selected: {currentType},
+                      onSelectionChanged: (Set<FuelType> newSelection) {
+                        _chartFuelTypeNotifier.value = newSelection.first;
+                      },
+                    ),
                   ],
-                  selected: {_chartFuelType},
-                  onSelectionChanged: (Set<FuelType> newSelection) {
-                    setState(() => _chartFuelType = newSelection.first);
-                  },
                 ),
-              ],
-            ),
-          ),
-          FuelFilterWidget(
-            initialFilterState: _chartsFilterState,
-            onFilterChanged: (newState) {
-              setState(() {
-                _chartsFilterState = newState;
-              });
-            },
-          ),
-          if (chartFilterResult.infoMessage.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 2.0),
-              child: Row(
-                children: [
-                  Icon(
-                    chartFilterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
-                    size: 14,
-                    color: chartFilterResult.isDataLimited ? Colors.orange : Colors.grey,
+              ),
+              FuelFilterWidget(
+                initialFilterState: _chartsFilterNotifier.value,
+                onFilterChanged: (newState) => _chartsFilterNotifier.value = newState,
+              ),
+              if (chartFilterResult.infoMessage.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 2.0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        chartFilterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
+                        size: 14,
+                        color: chartFilterResult.isDataLimited ? Colors.orange : Colors.grey,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          chartFilterResult.infoMessage,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: chartFilterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      chartFilterResult.infoMessage,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                        color: chartFilterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 8),
+                    Text(
+                      'Średnie miesięczne spalanie (${currentType.label})',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    Card(
+                      elevation: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: monthlyAverages.isEmpty
+                            ? const SizedBox(
+                                height: 200,
+                                child: Center(
+                                  child: Text(
+                                    'Brak wystarczających danych do wygenerowania wykresu dla wybranych kryteriów.',
+                                    style: TextStyle(color: Colors.grey),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              )
+                            : SizedBox(
+                                height: 250,
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final chartWidth = monthlyAverages.length * 64.0 > constraints.maxWidth
+                                        ? monthlyAverages.length * 64.0
+                                        : constraints.maxWidth;
+                                    return SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: SizedBox(
+                                        width: chartWidth,
+                                        child: CustomPaint(
+                                          painter: MonthlyChartPainter(monthlyAverages),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 8),
-                Text(
-                  'Średnie miesięczne spalanie (${_chartFuelType.label})',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  elevation: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: monthlyAverages.isEmpty
-                        ? const SizedBox(
-                            height: 200,
-                            child: Center(
-                              child: Text(
-                                'Brak wystarczających danych do wygenerowania wykresu dla wybranych kryteriów.',
-                                style: TextStyle(color: Colors.grey),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          )
-                        : SizedBox(
-                            height: 250,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final chartWidth = monthlyAverages.length * 64.0 >
-                                        constraints.maxWidth
-                                    ? monthlyAverages.length * 64.0
-                                    : constraints.maxWidth;
-                                return SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: SizedBox(
-                                    width: chartWidth,
-                                    child: CustomPaint(
-                                      painter: MonthlyChartPainter(monthlyAverages),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (monthlyAverages.isNotEmpty) ...[
-                  const Text(
-                    'Szczegóły miesięczne:',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  ...monthlyAverages.entries.map((entry) {
-                    final parts = entry.key.split('-');
-                    final yearMonthStr = '${parts[1]}.${parts[0]}';
-                    return ListTile(
-                      dense: true,
-                      title: Text('Miesiąc: $yearMonthStr'),
-                      trailing: Text(
-                        '${entry.value.toStringAsFixed(2)} L/100km',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    const SizedBox(height: 16),
+                    if (monthlyAverages.isNotEmpty) ...[
+                      const Text(
+                        'Szczegóły miesięczne:',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                       ),
-                    );
-                  }),
-                ]
-              ],
-            ),
+                      const SizedBox(height: 8),
+                      ...monthlyAverages.entries.map((entry) {
+                        final parts = entry.key.split('-');
+                        final yearMonthStr = '${parts[1]}.${parts[0]}';
+                        return ListTile(
+                          dense: true,
+                          title: Text('Miesiąc: $yearMonthStr'),
+                          trailing: Text(
+                            '${entry.value.toStringAsFixed(2)} L/100km',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        );
+                      }),
+                    ]
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildStatsTab() {
-    final lpgEntries = _entries.where((e) => e.fuelType == FuelType.lpg).toList();
-    final pbEntries = _entries.where((e) => e.fuelType == FuelType.pb).toList();
-
-    final totalLpgCost = lpgEntries.fold(0.0, (sum, e) => sum + e.cost);
-    final totalPbCost = pbEntries.fold(0.0, (sum, e) => sum + e.cost);
-    final totalCostAll = totalLpgCost + totalPbCost;
-
-    final totalLpgLiters = lpgEntries.fold(0.0, (sum, e) => sum + e.liters);
-    final totalPbLiters = pbEntries.fold(0.0, (sum, e) => sum + e.liters);
-
-    final avgLpgCons = _calculateConsumptionForList(lpgEntries);
-    final avgPbCons = _calculateConsumptionForList(pbEntries);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Podsumowanie ogólne statystyk',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const Text('Całkowite koszty paliwa', style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${totalCostAll.toStringAsFixed(2)} PLN',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal),
-                  ),
-                  const Divider(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem('LPG Koszt', '${totalLpgCost.toStringAsFixed(2)} PLN'),
-                      _buildStatItem('PB Koszt', '${totalPbCost.toStringAsFixed(2)} PLN'),
-                    ],
-                  ),
-                ],
+    return ValueListenableBuilder<List<FuelEntry>>(
+      valueListenable: _entriesNotifier,
+      builder: (context, entries, child) {
+        // Wszystkie dane pobierane są natychmiast z Cache (_statsTotalCostAll itd.)
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Podsumowanie ogólne statystyk',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const Text('Zużycie paliwa', style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+              const SizedBox(height: 16),
+              Card(
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
                     children: [
-                      _buildStatItem('LPG Litry', '${totalLpgLiters.toStringAsFixed(1)} L'),
-                      _buildStatItem('PB Litry', '${totalPbLiters.toStringAsFixed(1)} L'),
+                      const Text('Całkowite koszty paliwa', style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_statsTotalCostAll.toStringAsFixed(2)} PLN',
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal),
+                      ),
+                      const Divider(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem('LPG Koszt', '${_statsTotalLpgCost.toStringAsFixed(2)} PLN'),
+                          _buildStatItem('PB Koszt', '${_statsTotalPbCost.toStringAsFixed(2)} PLN'),
+                        ],
+                      ),
                     ],
                   ),
-                  const Divider(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem('Śr. spalanie LPG', avgLpgCons != null ? '${avgLpgCons.toStringAsFixed(2)} L/100' : 'Brak'),
-                      _buildStatItem('Śr. spalanie PB', avgPbCons != null ? '${avgPbCons.toStringAsFixed(2)} L/100' : 'Brak'),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  const Text('Liczba wpisów', style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+              const SizedBox(height: 12),
+              Card(
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
                     children: [
-                      _buildStatItem('Tankowania LPG', '${lpgEntries.length}'),
-                      _buildStatItem('Tankowania PB', '${pbEntries.length}'),
-                      _buildStatItem('Razem', '${_entries.length}'),
+                      const Text('Zużycie paliwa', style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem('LPG Litry', '${_statsTotalLpgLiters.toStringAsFixed(1)} L'),
+                          _buildStatItem('PB Litry', '${_statsTotalPbLiters.toStringAsFixed(1)} L'),
+                        ],
+                      ),
+                      const Divider(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem('Śr. spalanie LPG', _statsAvgLpgCons != null ? '${_statsAvgLpgCons!.toStringAsFixed(2)} L/100' : 'Brak'),
+                          _buildStatItem('Śr. spalanie PB', _statsAvgPbCons != null ? '${_statsAvgPbCons!.toStringAsFixed(2)} L/100' : 'Brak'),
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 12),
+              Card(
+                elevation: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      const Text('Liczba wpisów', style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem('Tankowania LPG', '$_statsLpgCount'),
+                          _buildStatItem('Tankowania PB', '$_statsPbCount'),
+                          _buildStatItem('Razem', '${entries.length}'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
