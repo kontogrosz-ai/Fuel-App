@@ -67,10 +67,13 @@ jobs:
       - name: Budowanie pliku APK (Release)
         run: flutter build apk --release --no-tree-shake-icons
 
+      - name: Przeniesienie i zmiana nazwy APK
+        run: |
+          mkdir -p build/app/outputs/renamed
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/renamed/Fuel_App.apk
+
       - name: Udostępnienie pliku APK do pobrania
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: |
-            build/app/outputs/flutter-apk/*.apk
-            build/app/outputs/apk/release/*.apk
+          name: Fuel_App
+          path: build/app/outputs/renamed/Fuel_App.apk
