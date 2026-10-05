@@ -902,7 +902,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         e.cost == entry.cost &&
                         e.liters == entry.liters
                       );
-                      if (!exists) {
+                      if (!_entries.any((e) => e.id == entry.id) && !exists) {
                         _entries.add(entry);
                       }
                     }
@@ -992,11 +992,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona z żądaniem uprawnień) ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
-    // Jawne sprawdzenie i żądanie uprawnień do mikrofonu (naprawa błędu na nowym Androidzie)
     var status = await Permission.microphone.status;
     if (!status.isGranted) {
       status = await Permission.microphone.request();
@@ -1038,7 +1037,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // Rozpoczynamy nasłuchiwanie przed otwarciem UI
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
