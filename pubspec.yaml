@@ -13,22 +13,14 @@ dependencies:
   cupertino_icons: ^1.0.8
   speech_to_text: ^7.0.0
   
-  # Obsługa uprawnień systemowych (w tym mikrofonu na Android 16)
   permission_handler: ^11.3.1
-  
-  # Wybór plików i plików graficznych
   file_picker: ^8.1.2
   image_picker: ^1.1.2
-
-  # OCR i przetwarzanie tekstu
   google_mlkit_text_recognition: ^0.13.0
-
-  # Obsługa plików Excel, ścieżek i udostępniania
-  excel: 2.1.0  # Zablokowana wersja 2.1.0 unikająca konfliktów z klasami Fluttera
+  
+  # Usunięto pakiet 'excel' - zastąpiono czystym CSV
   path_provider: ^2.1.5
   share_plus: ^10.0.0
-
-  # Przechowywanie preferencji i kopii zapasowych
   shared_preferences: ^2.3.2
 
 dev_dependencies:
