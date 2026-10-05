@@ -1,49 +1,53 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Uprawnienia wymagane przez speech-to-text -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Uprawnienia sieciowe -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Funkcje opcjonalne: aplikacja może działać bez aparatu -->
-    <uses-feature
-        android:name="android.hardware.microphone"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
+    <!-- Uprawnienie do rozpoznawania mowy (speech_to_text) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Widoczność systemowych usług rozpoznawania mowy -->
+    <!-- Uprawnienie do aparatu (image_picker / OCR) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Uprawnienia do odczytu i zapisu plików/zdjęć (kompatybilne z różnymi wersjami Androida) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Wymagane od Androida 11 (API 30+) do wykrywania usługi rozpoznawania mowy -->
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
-        <intent>
-            <action android:name="android.intent.action.RECOGNIZE_SPEECH" />
-        </intent>
     </queries>
 
-    <!-- Manifest nie odwołuje się do ikon, motywów ani konfiguracji backupu
-         znajdujących się w innych plikach XML. -->
     <application
-        android:label="Aplikacja"
-        android:allowBackup="true"
-        android:usesCleartextTraffic="false">
-
+        android:label="Aplikacja Paliwowa"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-
+            
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/AppTheme"
+              />
+              
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
+        <!-- Informacja dla Flutter v2 Embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
