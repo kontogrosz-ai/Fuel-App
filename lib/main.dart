@@ -4,8 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-// Ukrycie konfliktowych klas TextSpan oraz Border z pakietu excel
-import 'package:excel/excel.dart' hide Border, TextSpan;
+import 'package:excel/excel.dart' hide Border;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
@@ -262,7 +261,7 @@ FilterResult applyFuelFilter(
   );
 }
 
-// --- KOMPONENT UI FILTRA ---
+// --- KOMPONENT UI FILTRA (UKŁAD 2x2) ---
 class FuelFilterWidget extends StatefulWidget {
   final FuelFilterState initialFilterState;
   final ValueChanged<FuelFilterState> onFilterChanged;
@@ -407,21 +406,11 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in TimeFilterOption.values) {
         String label = '';
         switch (option) {
-          case TimeFilterOption.month1:
-            label = '1 miesiąc';
-            break;
-          case TimeFilterOption.months3:
-            label = '3 miesiące';
-            break;
-          case TimeFilterOption.months6:
-            label = '6 miesięcy';
-            break;
-          case TimeFilterOption.year1:
-            label = '1 rok';
-            break;
-          case TimeFilterOption.all:
-            label = 'Wszystko';
-            break;
+          case TimeFilterOption.month1: label = '1 miesiąc'; break;
+          case TimeFilterOption.months3: label = '3 miesiące'; break;
+          case TimeFilterOption.months6: label = '6 miesięcy'; break;
+          case TimeFilterOption.year1: label = '1 rok'; break;
+          case TimeFilterOption.all: label = 'Wszystko'; break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -438,18 +427,10 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in CountFilterOption.values) {
         String label = '';
         switch (option) {
-          case CountFilterOption.c5:
-            label = 'Ostatnie 5';
-            break;
-          case CountFilterOption.c10:
-            label = 'Ostatnie 10';
-            break;
-          case CountFilterOption.c20:
-            label = 'Ostatnie 20';
-            break;
-          case CountFilterOption.cAll:
-            label = 'Wszystkie';
-            break;
+          case CountFilterOption.c5: label = 'Ostatnie 5'; break;
+          case CountFilterOption.c10: label = 'Ostatnie 10'; break;
+          case CountFilterOption.c20: label = 'Ostatnie 20'; break;
+          case CountFilterOption.cAll: label = 'Wszystkie'; break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -466,18 +447,10 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in DistanceFilterOption.values) {
         String label = '';
         switch (option) {
-          case DistanceFilterOption.km500:
-            label = '500 km';
-            break;
-          case DistanceFilterOption.km1000:
-            label = '1000 km';
-            break;
-          case DistanceFilterOption.km5000:
-            label = '5000 km';
-            break;
-          case DistanceFilterOption.kmAll:
-            label = 'Cały dystans';
-            break;
+          case DistanceFilterOption.km500: label = '500 km'; break;
+          case DistanceFilterOption.km1000: label = '1000 km'; break;
+          case DistanceFilterOption.km5000: label = '5000 km'; break;
+          case DistanceFilterOption.kmAll: label = 'Cały dystans'; break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -605,7 +578,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  FuelFilterState _fuelFilterState = const FuelFilterState();
+  FuelFilterState _fuelFilterState = FuelFilterState();
 
   // --- SPEECH TO TEXT ---
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -782,33 +755,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // Bezpieczna konwersja wartości komórki Excel na String
-  String _excelCellText(CellValue? value) {
-    if (value == null) return '';
-    switch (value) {
-      case TextCellValue():
-        return value.value.toString();
-      case FormulaCellValue():
-        return value.formula;
-      case IntCellValue():
-        return value.value.toString();
-      case DoubleCellValue():
-        return value.value.toString();
-      case BoolCellValue():
-        return value.value.toString();
-      case DateCellValue():
-        return '${value.day.toString().padLeft(2, '0')}.'
-            '${value.month.toString().padLeft(2, '0')}.'
-            '${value.year}';
-      case DateTimeCellValue():
-        return value.asDateTimeLocal().toIso8601String();
-      case TimeCellValue():
-        return value.asDuration().toString();
-      default:
-        return value.toString();
-    }
-  }
-
   Future<void> _importExcel() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -836,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             final row = table.rows[i];
             if (row.isEmpty || row[0] == null) continue;
 
-            final firstCellVal = _excelCellText(row[0]?.value);
+            final firstCellVal = row[0]?.value?.toString() ?? '';
             if (firstCellVal.isEmpty || firstCellVal == 'PODSUMOWANIE' || firstCellVal == '-') {
               continue;
             }
@@ -871,7 +817,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double? tripDistance;
             if (row.length > 1 && row[1]?.value != null) {
-              final valStr = _excelCellText(row[1]!.value);
+              final valStr = row[1]!.value.toString();
               if (valStr != '-' && valStr.isNotEmpty) {
                 tripDistance = double.tryParse(valStr.replaceAll(',', '.'));
               }
@@ -879,7 +825,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double? odometer;
             if (row.length > 2 && row[2]?.value != null) {
-              final valStr = _excelCellText(row[2]!.value);
+              final valStr = row[2]!.value.toString();
               if (valStr != '-' && valStr.isNotEmpty) {
                 odometer = double.tryParse(valStr.replaceAll(',', '.'));
               }
@@ -887,13 +833,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             double cost = 0.0;
             if (row.length > 3 && row[3]?.value != null) {
-              final valStr = _excelCellText(row[3]!.value);
+              final valStr = row[3]!.value.toString();
               cost = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
             double liters = 0.0;
             if (row.length > 4 && row[4]?.value != null) {
-              final valStr = _excelCellText(row[4]!.value);
+              final valStr = row[4]!.value.toString();
               liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
             }
 
@@ -949,12 +895,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 onPressed: () {
                   setState(() {
                     for (var entry in importedEntries) {
-                      bool exists = _entries.any((e) =>
-                          e.date.year == entry.date.year &&
-                          e.date.month == entry.date.month &&
-                          e.date.day == entry.date.day &&
-                          e.cost == entry.cost &&
-                          e.liters == entry.liters);
+                      bool exists = _entries.any((e) => 
+                        e.date.year == entry.date.year &&
+                        e.date.month == entry.date.month &&
+                        e.date.day == entry.date.day &&
+                        e.cost == entry.cost &&
+                        e.liters == entry.liters
+                      );
                       if (!exists) {
                         _entries.add(entry);
                       }
@@ -999,19 +946,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     final costMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:zł|złotych|pln)', caseSensitive: false).firstMatch(lowerText) ??
-        RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+                      RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
     if (costMatch != null) {
       detectedCost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
     }
 
     final litersMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litr|litry|litrów)', caseSensitive: false).firstMatch(lowerText) ??
-        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+                        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
     if (litersMatch != null) {
       detectedLiters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
     }
 
     final tripMatch = RegExp(r'(?:dystans|przejechane|odcinek)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText) ??
-        RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
+                      RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
     if (tripMatch != null) {
       tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
     }
@@ -1045,10 +992,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona z żądaniem uprawnień) ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
+    // Jawne sprawdzenie i żądanie uprawnień do mikrofonu (naprawa błędu na nowym Androidzie)
     var status = await Permission.microphone.status;
     if (!status.isGranted) {
       status = await Permission.microphone.request();
@@ -1063,7 +1011,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     StateSetter? dialogSetState;
     String recognizedText = '';
-
+    
     bool available = await _speech.initialize(
       onStatus: (val) {
         debugPrint('onStatus: $val');
@@ -1090,6 +1038,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
+    // Rozpoczynamy nasłuchiwanie przed otwarciem UI
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
@@ -1102,14 +1051,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
 
     if (!mounted) return;
-
+    
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           dialogSetState = setDialogState;
-
+          
           return AlertDialog(
             title: Row(
               children: [
@@ -1134,8 +1083,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    recognizedText.isEmpty
-                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.')
+                    recognizedText.isEmpty 
+                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.') 
                         : recognizedText,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     textAlign: TextAlign.center,
@@ -1178,7 +1127,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         },
       ),
     );
-
+    
     _speech.stop();
     _isListening = false;
   }
@@ -1191,6 +1140,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entriesForType(FuelType type) {
     return _getFilterResultForType(type).filteredEntries;
   }
+
+  double _totalCostFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
+
+  double _totalLitersFor(FuelType type) =>
+      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
@@ -1404,18 +1359,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ? entryToEdit.odometer!.toStringAsFixed(0)
           : (initialOdometer != null ? initialOdometer.toStringAsFixed(0) : ''),
     );
-
+    
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
 
     double? previousOdometer(DateTime before) {
-      final endOfDay = DateTime(before.year, before.month, before.day, 23, 59, 59);
       final candidates = _entries
           .where((entry) =>
               entry.id != entryToEdit?.id &&
               entry.odometer != null &&
-              !entry.date.isAfter(endOfDay))
+              entry.date.isBefore(before))
           .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
       return candidates.isEmpty ? null : candidates.first.odometer;
@@ -1496,7 +1450,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   },
                 ),
                 const SizedBox(height: 12),
-
+                
                 OutlinedButton.icon(
                   onPressed: () async {
                     final pickedDate = await showDatePicker(
@@ -1620,7 +1574,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   );
                   return;
                 }
-
+                
                 lastOdometer = previousOdometer(selectedDate);
                 final localOdo = lastOdometer;
 
@@ -1678,148 +1632,82 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Generowanie pliku Excel...'),
-        duration: Duration(minutes: 1),
-      ),
+      const SnackBar(content: Text('Generowanie pliku Excel...')),
     );
 
     try {
-      final excel = Excel.createExcel();
-
-      List<FuelEntry> entriesForType(FuelType type) {
-        return _entries.where((entry) => entry.fuelType == type).toList()
-          ..sort((a, b) => a.date.compareTo(b.date));
-      }
+      var excel = Excel.createExcel();
 
       void createSheetForType(String sheetName, FuelType type) {
-        final sheet = excel[sheetName];
-        final entries = entriesForType(type);
+        Sheet sheetObject = excel[sheetName];
+        final list = _entriesForType(type); 
 
-        sheet.appendRow(<CellValue?>[
-          TextCellValue('Data'),
-          TextCellValue('Dystans (km)'),
-          TextCellValue('Stan licznika (km)'),
-          TextCellValue('Koszt (PLN)'),
-          TextCellValue('Paliwo (L)'),
-          TextCellValue('Cena za litr (PLN/L)'),
-          TextCellValue('Pełny bak?'),
-          TextCellValue('Spalanie (L/100 km)'),
+        sheetObject.appendRow([
+          'Data',
+          'Dystans (km)',
+          'Stan licznika (km)',
+          'Koszt (PLN)',
+          'Paliwo (L)',
+          'Pełny bak?',
+          'Spalanie (L/100km)',
         ]);
 
-        for (final entry in entries) {
-          final dateText =
-              '${entry.date.day.toString().padLeft(2, '0')}.'
-              '${entry.date.month.toString().padLeft(2, '0')}.'
-              '${entry.date.year}';
-          sheet.appendRow(<CellValue?>[
-            TextCellValue(dateText),
-            entry.tripDistance == null
-                ? null
-                : DoubleCellValue(entry.tripDistance!),
-            entry.odometer == null
-                ? null
-                : DoubleCellValue(entry.odometer!),
-            DoubleCellValue(double.parse(entry.cost.toStringAsFixed(2))),
-            DoubleCellValue(double.parse(entry.liters.toStringAsFixed(3))),
-            DoubleCellValue(
-              double.parse(entry.pricePerLiter.toStringAsFixed(3)),
-            ),
-            TextCellValue(entry.isFullTank ? 'Tak' : 'Nie'),
-            entry.singleConsumption == null
-                ? null
-                : DoubleCellValue(
-                    double.parse(
-                      entry.singleConsumption!.toStringAsFixed(2),
-                    ),
-                  ),
+        for (var entry in list) {
+          sheetObject.appendRow([
+            '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
+            entry.tripDistance ?? '-',
+            entry.odometer ?? '-',
+            entry.cost,
+            entry.liters,
+            entry.isFullTank ? 'Tak' : 'Nie',
+            entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
           ]);
         }
 
-        final totalCost = entries.fold<double>(
-          0,
-          (sum, entry) => sum + entry.cost,
-        );
-        final totalLiters = entries.fold<double>(
-          0,
-          (sum, entry) => sum + entry.liters,
-        );
-        final averageConsumption = _calculateConsumptionForList(entries);
+        double totalCost = _totalCostFor(type);
+        double totalLiters = _totalLitersFor(type);
+        double? avgCons = _calculateConsumptionForList(list);
 
-        sheet.appendRow(<CellValue?>[]);
-        sheet.appendRow(<CellValue?>[
-          TextCellValue('PODSUMOWANIE'),
-          null,
-          null,
-          DoubleCellValue(double.parse(totalCost.toStringAsFixed(2))),
-          DoubleCellValue(double.parse(totalLiters.toStringAsFixed(3))),
-          totalLiters <= 0
-              ? null
-              : DoubleCellValue(
-                  double.parse((totalCost / totalLiters).toStringAsFixed(3)),
-                ),
-          null,
-          averageConsumption == null
-              ? null
-              : DoubleCellValue(
-                  double.parse(averageConsumption.toStringAsFixed(2)),
-                ),
+        sheetObject.appendRow([]);
+        sheetObject.appendRow([
+          'PODSUMOWANIE',
+          '-',
+          '-',
+          double.parse(totalCost.toStringAsFixed(2)),
+          double.parse(totalLiters.toStringAsFixed(2)),
+          '-',
+          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
         ]);
       }
 
-      excel.rename('Sheet1', 'LPG');
       createSheetForType('LPG', FuelType.lpg);
-      createSheetForType('Benzyna PB', FuelType.pb);
+      createSheetForType('Benzyna (PB)', FuelType.pb);
 
-      final fileBytes = excel.save();
-      if (fileBytes == null || fileBytes.isEmpty) {
-        throw const FileSystemException(
-          'Pakiet Excel nie wygenerował danych pliku.',
-        );
-      }
+      excel.delete('Sheet1'); 
 
       final directory = await getTemporaryDirectory();
-      final now = DateTime.now();
-      final timestamp =
-          '${now.year}'
-          '${now.month.toString().padLeft(2, '0')}'
-          '${now.day.toString().padLeft(2, '0')}_'
-          '${now.hour.toString().padLeft(2, '0')}'
-          '${now.minute.toString().padLeft(2, '0')}'
-          '${now.second.toString().padLeft(2, '0')}';
-      final reportFile = File(
-        '${directory.path}/Raport_Paliwa_$timestamp.xlsx',
-      );
-      await reportFile.writeAsBytes(fileBytes, flush: true);
+      final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
+      final filePath = '${directory.path}/Raport_Paliwa_$dateStr.xlsx';
+      final fileBytes = excel.save();
 
-      if (!await reportFile.exists() || await reportFile.length() == 0) {
-        throw const FileSystemException('Utworzony plik Excel jest pusty.');
+      if (fileBytes != null) {
+        File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(fileBytes);
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        await Share.shareXFiles(
+          [XFile(filePath)], 
+          subject: 'Raport z aplikacji Fuel App',
+          text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
+        );
       }
-
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      await Share.shareXFiles(
-        <XFile>[
-          XFile(
-            reportFile.path,
-            mimeType:
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          ),
-        ],
-        subject: 'Raport z aplikacji Fuel App',
-        text: 'Raport tankowań LPG i benzyny w formacie XLSX.',
-      );
-    } catch (error, stackTrace) {
-      debugPrint('Błąd eksportu XLSX: $error');
-      debugPrintStack(stackTrace: stackTrace);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Nie udało się utworzyć raportu XLSX. Spróbuj ponownie.',
-          ),
-        ),
+        SnackBar(content: Text('Błąd podczas eksportu: $e')),
       );
     }
   }
@@ -2234,7 +2122,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
-// Rysownik wykresu z jawnym odwołaniem do TextSpan z Fluttera
 class MonthlyChartPainter extends CustomPainter {
   final Map<String, double> monthlyData;
 
