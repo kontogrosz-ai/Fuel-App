@@ -364,7 +364,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
     return Material(
       color: isSelected
           ? theme.colorScheme.primaryContainer
-          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: () => _update(_currentFilter.copyWith(mainMode: mode)),
@@ -1037,8 +1037,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
+    // POPRAWKA TUTAJ: Użycie SpeechListenOptions zamiast przestarzałego localeId
     _speech.listen(
-      localeId: 'pl_PL',
+      listenOptions: stt.SpeechListenOptions(localeId: 'pl_PL'),
       onResult: (val) {
         if (dialogSetState != null) {
           dialogSetState!(() {
