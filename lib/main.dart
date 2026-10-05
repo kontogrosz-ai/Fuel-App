@@ -589,7 +589,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    // Zmieniono długość tabController na 4 zakłady (LPG, PB, Wykresy, Stats)
     _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
     _initialize();
   }
@@ -905,7 +904,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         e.cost == entry.cost &&
                         e.liters == entry.liters
                       );
-                      if (!exists) {
+                      if (!_exists) {
                         _entries.add(entry);
                       }
                     }
@@ -999,11 +998,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }) async {
     StateSetter? dialogSetState;
     String recognizedText = '';
-    
-    bool hasPermission = await _speech.hasPermission;
-    if (!hasPermission) {
-      debugPrint('Brak uprawnień do mikrofonu. Próba zainicjalizowania w celu uzyskania uprawnień...');
-    }
 
     bool available = await _speech.initialize(
       onStatus: (val) {
@@ -1031,15 +1025,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    bool currentPermission = await _speech.hasPermission;
-    if (!currentPermission) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Brak uprawnień do korzystania z mikrofonu.')),
-      );
-      return;
-    }
-
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
@@ -1052,14 +1037,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
 
     if (!mounted) return;
-    
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           dialogSetState = setDialogState;
-          
+
           return AlertDialog(
             title: Row(
               children: [
@@ -1084,8 +1069,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    recognizedText.isEmpty 
-                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.') 
+                    recognizedText.isEmpty
+                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.')
                         : recognizedText,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     textAlign: TextAlign.center,
@@ -1128,7 +1113,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         },
       ),
     );
-    
+
     _speech.stop();
     _isListening = false;
   }
@@ -1301,7 +1286,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       r'(?:suma|razem|kwota|suma\s+pln)(?:\s+(?:pln|zł|zl))?\s*[:=]?\s*(\d+[\.,]\d{2})',
       caseSensitive: false,
     );
-    
+
     final costMatch = costRegex.firstMatch(text);
     if (costMatch != null) {
       String rawCost = costMatch.group(1)!.replaceAll(',', '.');
@@ -1369,7 +1354,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ? entryToEdit.odometer!.toStringAsFixed(0)
           : (initialOdometer != null ? initialOdometer.toStringAsFixed(0) : ''),
     );
-    
+
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
@@ -1460,7 +1445,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   },
                 ),
                 const SizedBox(height: 12),
-                
+
                 OutlinedButton.icon(
                   onPressed: () async {
                     final pickedDate = await showDatePicker(
@@ -1584,7 +1569,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   );
                   return;
                 }
-                
+
                 lastOdometer = previousOdometer(selectedDate);
                 final localOdo = lastOdometer;
 
@@ -1633,6 +1618,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
+  // --- ZPOPRAWIONY EXPORT DO EXCELA KOMPATYBILNY Z NOWĄ WERSJĄ PACZKI EXCEL ---
   Future<void> _exportToExcel() async {
     if (_entries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1651,27 +1637,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       void createSheetForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
-        final list = _entriesForType(type); 
+        final list = _entriesForType(type);
 
         sheetObject.appendRow([
-          'Data',
-          'Dystans (km)',
-          'Stan licznika (km)',
-          'Koszt (PLN)',
-          'Paliwo (L)',
-          'Pełny bak?',
-          'Spalanie (L/100km)',
+          TextCellValue('Data'),
+          TextCellValue('Dystans (km)'),
+          TextCellValue('Stan licznika (km)'),
+          TextCellValue('Koszt (PLN)'),
+          TextCellValue('Paliwo (L)'),
+          TextCellValue('Pełny bak?'),
+          TextCellValue('Spalanie (L/100km)'),
         ]);
 
         for (var entry in list) {
           sheetObject.appendRow([
-            '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
-            entry.tripDistance ?? '-',
-            entry.odometer ?? '-',
-            entry.cost,
-            entry.liters,
-            entry.isFullTank ? 'Tak' : 'Nie',
-            entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+            TextCellValue('${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}'),
+            entry.tripDistance != null ? DoubleCellValue(entry.tripDistance!) : TextCellValue('-'),
+            entry.odometer != null ? DoubleCellValue(entry.odometer!) : TextCellValue('-'),
+            DoubleCellValue(entry.cost),
+            DoubleCellValue(entry.liters),
+            TextCellValue(entry.isFullTank ? 'Tak' : 'Nie'),
+            entry.singleConsumption != null
+                ? DoubleCellValue(double.parse(entry.singleConsumption!.toStringAsFixed(2)))
+                : TextCellValue('-'),
           ]);
         }
 
@@ -1681,13 +1669,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
         sheetObject.appendRow([]);
         sheetObject.appendRow([
-          'PODSUMOWANIE',
-          '-',
-          '-',
-          double.parse(totalCost.toStringAsFixed(2)),
-          double.parse(totalLiters.toStringAsFixed(2)),
-          '-',
-          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
+          TextCellValue('PODSUMOWANIE'),
+          TextCellValue('-'),
+          TextCellValue('-'),
+          DoubleCellValue(double.parse(totalCost.toStringAsFixed(2))),
+          DoubleCellValue(double.parse(totalLiters.toStringAsFixed(2))),
+          TextCellValue('-'),
+          avgCons != null
+              ? DoubleCellValue(double.parse(avgCons.toStringAsFixed(2)))
+              : TextCellValue('-'),
         ]);
       }
 
@@ -1703,12 +1693,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         File(filePath)
           ..createSync(recursive: true)
           ..writeAsBytesSync(fileBytes);
-        
+
         if (!mounted) return;
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        
+
         await Share.shareXFiles(
-          [XFile(filePath)], 
+          [XFile(filePath)],
           subject: 'Raport z aplikacji Fuel App',
           text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
         );
@@ -1805,7 +1795,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Tab(text: 'LPG', icon: Icon(Icons.propane_tank)),
             Tab(text: 'PB', icon: Icon(Icons.local_gas_station)),
             Tab(text: 'Wykresy', icon: Icon(Icons.bar_chart)),
-            Tab(text: 'Stats', icon: Icon(Icons.analytics)), // Nowa zakładka Stats
+            Tab(text: 'Stats', icon: Icon(Icons.analytics)),
           ],
         ),
         actions: [
@@ -1849,7 +1839,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     _buildFuelTab(FuelType.lpg),
                     _buildFuelTab(FuelType.pb),
                     _buildChartsTab(),
-                    _buildStatsTab(), // Widok dla nowej zakładki Stats
+                    _buildStatsTab(),
                   ],
                 ),
       floatingActionButton: FloatingActionButton(
@@ -2142,7 +2132,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // Nowa zakładka Stats - ogólne podsumowanie statystyk
   Widget _buildStatsTab() {
     final lpgEntries = _entries.where((e) => e.fuelType == FuelType.lpg).toList();
     final pbEntries = _entries.where((e) => e.fuelType == FuelType.pb).toList();
