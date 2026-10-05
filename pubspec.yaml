@@ -13,9 +13,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   speech_to_text: ^7.0.0
   
-  # Zarządzanie uprawnieniami (np. mikrofon)
-  permission_handler: ^11.3.0
-  
   # Wybór plików i plików graficznych
   file_picker: ^8.1.2
   image_picker: ^1.1.2
