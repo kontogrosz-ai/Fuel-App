@@ -578,6 +578,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   FuelType _chartFuelType = FuelType.lpg;
   FuelFilterState _fuelFilterState = FuelFilterState();
+  
+  // Niezależny stan filtra dla zakładki Wykresy
+  FuelFilterState _chartsFilterState = FuelFilterState();
 
   // --- SPEECH TO TEXT ---
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -928,7 +931,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // --- PARSOWANIE DANYCH GŁOSOWYCH (SPEECH-TO-TEXT) ---
   Map<String, dynamic> _extractFuelDataFromSpeech(String text) {
     double? detectedLiters;
     double? detectedCost;
@@ -991,14 +993,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU Z JAŚNIEJSZYM SPRAWDZANIEM UPRAWNIEŃ ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
     StateSetter? dialogSetState;
     String recognizedText = '';
     
-    // Jawne sprawdzenie i żądanie uprawnienia przed inicjalizacją mowy
     bool hasPermission = await _speech.hasPermission;
     if (!hasPermission) {
       debugPrint('Brak uprawnień do mikrofonu. Próba zainicjalizowania w celu uzyskania uprawnień...');
@@ -1030,7 +1030,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // Ponowne jawne sprawdzenie przed wywołaniem listen()
     bool currentPermission = await _speech.hasPermission;
     if (!currentPermission) {
       if (!mounted) return;
@@ -1136,6 +1135,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   FilterResult _getFilterResultForType(FuelType type) {
     final typeEntries = _entries.where((e) => e.fuelType == type).toList();
     return applyFuelFilter(typeEntries, _fuelFilterState);
+  }
+
+  // Metoda pobierająca przefiltrowane dane dla wykresów przy użyciu osobnego stanu _chartsFilterState
+  FilterResult _getChartFilterResultForType(FuelType type) {
+    final typeEntries = _entries.where((e) => e.fuelType == type).toList();
+    return applyFuelFilter(typeEntries, _chartsFilterState);
   }
 
   List<FuelEntry> _entriesForType(FuelType type) {
@@ -1988,7 +1993,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildChartsTab() {
-    List<FuelEntry> chartEntries = _entriesForType(_chartFuelType);
+    final chartFilterResult = _getChartFilterResultForType(_chartFuelType);
+    final chartEntries = chartFilterResult.filteredEntries;
 
     final Map<String, List<FuelEntry>> monthlyGroups = {};
     for (var entry in chartEntries) {
@@ -2005,103 +2011,131 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SegmentedButton<FuelType>(
-            segments: const [
-              ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
-              ButtonSegment(value: FuelType.pb, label: Text('Benzyna (PB)'), icon: Icon(Icons.local_gas_station)),
-            ],
-            selected: {_chartFuelType},
-            onSelectionChanged: (Set<FuelType> newSelection) {
-              setState(() => _chartFuelType = newSelection.first);
-            },
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.teal.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(Icons.filter_list, size: 18, color: Colors.teal),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Wykres korzysta z aktywnego filtra z zakładek paliwowych.',
-                    style: TextStyle(fontSize: 12, color: Colors.teal.shade800),
-                  ),
+                SegmentedButton<FuelType>(
+                  segments: const [
+                    ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
+                    ButtonSegment(value: FuelType.pb, label: Text('Benzyna (PB)'), icon: Icon(Icons.local_gas_station)),
+                  ],
+                  selected: {_chartFuelType},
+                  onSelectionChanged: (Set<FuelType> newSelection) {
+                    setState(() => _chartFuelType = newSelection.first);
+                  },
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Średnie miesięczne spalanie (${_chartFuelType.label})',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          // Osobny widget filtrowania dedykowany dla wykresów
+          FuelFilterWidget(
+            initialFilterState: _chartsFilterState,
+            onFilterChanged: (newState) {
+              setState(() {
+                _chartsFilterState = newState;
+              });
+            },
           ),
-          const SizedBox(height: 16),
-          Card(
-            elevation: 3,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: monthlyAverages.isEmpty
-                  ? const SizedBox(
-                      height: 200,
-                      child: Center(
-                        child: Text(
-                          'Brak wystarczających danych do wygenerowania wykresu dla wybranych kryteriów.',
-                          style: TextStyle(color: Colors.grey),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  : SizedBox(
-                      height: 250,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final chartWidth = monthlyAverages.length * 64.0 >
-                                  constraints.maxWidth
-                              ? monthlyAverages.length * 64.0
-                              : constraints.maxWidth;
-                          return SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: SizedBox(
-                              width: chartWidth,
-                              child: CustomPaint(
-                                painter: MonthlyChartPainter(monthlyAverages),
-                              ),
-                            ),
-                          );
-                        },
+          if (chartFilterResult.infoMessage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 2.0),
+              child: Row(
+                children: [
+                  Icon(
+                    chartFilterResult.isDataLimited ? Icons.info_outline : Icons.check_circle_outline,
+                    size: 14,
+                    color: chartFilterResult.isDataLimited ? Colors.orange : Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      chartFilterResult.infoMessage,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: chartFilterResult.isDataLimited ? Colors.orange.shade800 : Colors.grey.shade700,
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  'Średnie miesięczne spalanie (${_chartFuelType.label})',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  elevation: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: monthlyAverages.isEmpty
+                        ? const SizedBox(
+                            height: 200,
+                            child: Center(
+                              child: Text(
+                                'Brak wystarczających danych do wygenerowania wykresu dla wybranych kryteriów.',
+                                style: TextStyle(color: Colors.grey),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        : SizedBox(
+                            height: 250,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final chartWidth = monthlyAverages.length * 64.0 >
+                                        constraints.maxWidth
+                                    ? monthlyAverages.length * 64.0
+                                    : constraints.maxWidth;
+                                return SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SizedBox(
+                                    width: chartWidth,
+                                    child: CustomPaint(
+                                      painter: MonthlyChartPainter(monthlyAverages),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (monthlyAverages.isNotEmpty) ...[
+                  const Text(
+                    'Szczegóły miesięczne:',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ...monthlyAverages.entries.map((entry) {
+                    final parts = entry.key.split('-');
+                    final yearMonthStr = '${parts[1]}.${parts[0]}';
+                    return ListTile(
+                      dense: true,
+                      title: Text('Miesiąc: $yearMonthStr'),
+                      trailing: Text(
+                        '${entry.value.toStringAsFixed(2)} L/100km',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    );
+                  }),
+                ]
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          if (monthlyAverages.isNotEmpty) ...[
-            const Text(
-              'Szczegóły miesięczne:',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            ...monthlyAverages.entries.map((entry) {
-              final parts = entry.key.split('-');
-              final yearMonthStr = '${parts[1]}.${parts[0]}';
-              return ListTile(
-                dense: true,
-                title: Text('Miesiąc: $yearMonthStr'),
-                trailing: Text(
-                  '${entry.value.toStringAsFixed(2)} L/100km',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-              );
-            }),
-          ]
         ],
       ),
     );
