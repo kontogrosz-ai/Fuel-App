@@ -1798,7 +1798,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fuel App - Zarządzanie paliwem'),
+        title: const Text('Fuel App'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
