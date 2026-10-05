@@ -20,7 +20,8 @@ dependencies:
   file_picker: ^8.1.2
   image_picker: ^1.1.2
 
-
+  # OCR i przetwarzanie tekstu
+  google_mlkit_text_recognition: ^0.13.0
 
   # Obsługa plików Excel, ścieżek i udostępniania
   excel: 2.1.0  # Zablokowana wersja 2.1.0 unikająca konfliktów z klasami Fluttera
