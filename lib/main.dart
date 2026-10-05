@@ -1625,6 +1625,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       var excel = Excel.createExcel();
 
+      // ZMIANA: Zamiast usuwać 'Sheet1' (co powodowało błąd modyfikacji niemodyfikowalnej listy),
+      // zmieniamy nazwę domyślnego arkusza na 'LPG'.
+      excel.rename('Sheet1', 'LPG');
+
       void createSheetForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
         final list = _entriesForType(type); 
@@ -1667,10 +1671,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
+      // Wypełniamy przemianowany arkusz LPG
       createSheetForType('LPG', FuelType.lpg);
+      
+      // Tworzymy nowy arkusz dla Benzyny
       createSheetForType('Benzyna (PB)', FuelType.pb);
-
-      excel.delete('Sheet1'); 
 
       final directory = await getTemporaryDirectory();
       final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
