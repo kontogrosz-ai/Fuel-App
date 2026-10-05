@@ -1,0 +1,11 @@
+steps:
+  - uses: actions/checkout@v4
+
+  # 1. Konfiguracja środowiska Flutter na serwerze GitHub
+  - uses: subosito/flutter-action@v2
+    with:
+      channel: 'stable'
+
+  # 2. Pobranie zależności za pomocą Fluttera (zamiast Darta)
+  - name: Install dependencies
+    run: flutter pub get
