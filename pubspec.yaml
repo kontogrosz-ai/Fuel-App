@@ -13,6 +13,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   speech_to_text: ^7.0.0
   
+  # Obsługa uprawnień systemowych (w tym mikrofonu na Android 16)
+  permission_handler: ^11.3.1
+  
   # Wybór plików i plików graficznych
   file_picker: ^8.1.2
   image_picker: ^1.1.2
