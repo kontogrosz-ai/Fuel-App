@@ -991,13 +991,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU Z JAŚNIEJSZYM SPRAWDZANIEM UPRAWNIEŃ ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
     StateSetter? dialogSetState;
     String recognizedText = '';
     
+    // Jawne sprawdzenie i żądanie uprawnienia przed inicjalizacją mowy
+    bool hasPermission = await _speech.hasPermission;
+    if (!hasPermission) {
+      debugPrint('Brak uprawnień do mikrofonu. Próba zainicjalizowania w celu uzyskania uprawnień...');
+    }
+
     bool available = await _speech.initialize(
       onStatus: (val) {
         debugPrint('onStatus: $val');
@@ -1017,12 +1023,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (!available) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rozpoznawanie mowy jest niedostępne na tym urządzeniu.')),
+        const SnackBar(content: Text('Rozpoznawanie mowy jest niedostępne lub brak uprawnień do mikrofonu.')),
       );
       return;
     }
 
     _isListening = true;
+
+    // Ponowne jawne sprawdzenie przed wywołaniem listen()
+    bool currentPermission = await _speech.hasPermission;
+    if (!currentPermission) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Brak uprawnień do korzystania z mikrofonu.')),
+      );
+      return;
+    }
 
     _speech.listen(
       localeId: 'pl_PL',
@@ -1257,7 +1273,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZAKTUALIZOWANA FUNKCJA OCR Z NOWYMcostRegex ---
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
     double? detectedCost;
@@ -1277,7 +1292,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    // Wdrożone zaktualizowane wyrażenie regularne dla kosztu
     final RegExp costRegex = RegExp(
       r'(?:suma|razem|kwota|suma\s+pln)(?:\s+(?:pln|zł|zl))?\s*[:=]?\s*(\d+[\.,]\d{2})',
       caseSensitive: false,
