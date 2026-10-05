@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:excel/excel.dart' hide Border;
+// Ukrycie konfliktowych klas TextSpan oraz Border z pakietu excel
+import 'package:excel/excel.dart' hide Border, TextSpan;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
@@ -261,7 +262,7 @@ FilterResult applyFuelFilter(
   );
 }
 
-// --- KOMPONENT UI FILTRA (UKŁAD 2x2) ---
+// --- KOMPONENT UI FILTRA ---
 class FuelFilterWidget extends StatefulWidget {
   final FuelFilterState initialFilterState;
   final ValueChanged<FuelFilterState> onFilterChanged;
@@ -755,21 +756,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  // Bezpieczna konwersja wartości komórki Excel na String (gwarantowany typ zwracany: String)
   String _excelCellText(CellValue? value) {
-    return switch (value) {
-      null => '',
-      TextCellValue() => value.value,
-      FormulaCellValue() => value.formula,
-      IntCellValue() => value.value.toString(),
-      DoubleCellValue() => value.value.toString(),
-      BoolCellValue() => value.value.toString(),
-      DateCellValue() =>
-        '${value.day.toString().padLeft(2, '0')}.'
-        '${value.month.toString().padLeft(2, '0')}.'
-        '${value.year}',
-      DateTimeCellValue() => value.asDateTimeLocal().toIso8601String(),
-      TimeCellValue() => value.asDuration().toString(),
-    };
+    if (value == null) return '';
+    switch (value) {
+      case TextCellValue():
+        return value.value.toString();
+      case FormulaCellValue():
+        return value.formula;
+      case IntCellValue():
+        return value.value.toString();
+      case DoubleCellValue():
+        return value.value.toString();
+      case BoolCellValue():
+        return value.value.toString();
+      case DateCellValue():
+        return '${value.day.toString().padLeft(2, '0')}.'
+            '${value.month.toString().padLeft(2, '0')}.'
+            '${value.year}';
+      case DateTimeCellValue():
+        return value.asDateTimeLocal().toIso8601String();
+      case TimeCellValue():
+        return value.asDuration().toString();
+      default:
+        return value.toString();
+    }
   }
 
   Future<void> _importExcel() async {
@@ -1009,11 +1020,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona z żądaniem uprawnień) ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
-    // Jawne sprawdzenie i żądanie uprawnień do mikrofonu (naprawa błędu na nowym Androidzie)
     var status = await Permission.microphone.status;
     if (!status.isGranted) {
       status = await Permission.microphone.request();
@@ -1055,7 +1065,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // Rozpoczynamy nasłuchiwanie przed otwarciem UI
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
@@ -1157,12 +1166,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entriesForType(FuelType type) {
     return _getFilterResultForType(type).filteredEntries;
   }
-
-  double _totalCostFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
-
-  double _totalLitersFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
@@ -1738,8 +1741,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      // Nie wywołujemy delete() ani rename(). Domyślny arkusz jest używany
-      // dla LPG, co omija starszy błąd „unmodifiable list”.
       createSheetForType('Sheet1', FuelType.lpg);
       createSheetForType('Benzyna PB', FuelType.pb);
 
@@ -2206,6 +2207,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 }
 
+// Rysownik wykresu z jawnym odwołaniem do TextSpan z Fluttera
 class MonthlyChartPainter extends CustomPainter {
   final Map<String, double> monthlyData;
 
