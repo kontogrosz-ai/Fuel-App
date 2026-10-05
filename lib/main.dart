@@ -525,7 +525,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  // WZORZEC OBSERWATORA - ValueNotifier zamiast przebudowywania całego drzewa przez setState
   final ValueNotifier<List<FuelEntry>> _entriesNotifier = ValueNotifier([]);
   final ValueNotifier<FuelFilterState> _fuelFilterNotifier = ValueNotifier(FuelFilterState());
   final ValueNotifier<FuelFilterState> _chartsFilterNotifier = ValueNotifier(FuelFilterState());
@@ -538,8 +537,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
 
-  // --- MEMOIZATION (CACHE) ---
-  // Zmienne przechowujące przeliczone statystyki, by nie wyliczać ich przy każdym build()
   FilterResult? _lpgFuelTabCache;
   FilterResult? _pbFuelTabCache;
   double? _lpgFuelTabAvg;
@@ -563,7 +560,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.initState();
     _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
     
-    // Dodajemy listenery wyzwalające przeliczanie CACHE tylko przy zmianach danych
     _entriesNotifier.addListener(_onEntriesChanged);
     _fuelFilterNotifier.addListener(_updateFuelTabCache);
     _chartsFilterNotifier.addListener(_updateChartCache);
@@ -934,7 +930,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 onPressed: () {
                   final newList = List<FuelEntry>.from(_entriesNotifier.value);
                   for (var entry in importedEntries) {
-                    // POPRAWKA: Prawidłowa nazwa zmiennej exists
+                    // Zastosowana poprawka z poprawną nazwą zmiennej exists[cite: 6]
                     bool exists = newList.any((e) => 
                       e.date.year == entry.date.year &&
                       e.date.month == entry.date.month &&
@@ -1870,11 +1866,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildFuelTab(FuelType type) {
-    // ListenableBuilder przebudowuje ten fragment UI, kiedy zmieni się baza entries LUB filtr.
     return ListenableBuilder(
       listenable: Listenable.merge([_entriesNotifier, _fuelFilterNotifier]),
       builder: (context, child) {
-        // Dane pobieramy z przygotowanego w listenerach Cache
         final filterResult = type == FuelType.lpg ? _lpgFuelTabCache! : _pbFuelTabCache!;
         final entries = filterResult.filteredEntries;
         final avgConsumption = type == FuelType.lpg ? _lpgFuelTabAvg : _pbFuelTabAvg;
@@ -2008,7 +2002,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return ListenableBuilder(
       listenable: Listenable.merge([_entriesNotifier, _chartsFilterNotifier, _chartFuelTypeNotifier]),
       builder: (context, child) {
-        // Dane pobierane z Cache
         final chartFilterResult = _chartFilterCache!;
         final monthlyAverages = _chartDataCache;
         final currentType = _chartFuelTypeNotifier.value;
@@ -2144,7 +2137,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return ValueListenableBuilder<List<FuelEntry>>(
       valueListenable: _entriesNotifier,
       builder: (context, entries, child) {
-        // Wszystkie dane pobierane są natychmiast z Cache (_statsTotalCostAll itd.)
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
           child: Column(
