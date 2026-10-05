@@ -10,7 +10,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -364,7 +363,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
     return Material(
       color: isSelected
           ? theme.colorScheme.primaryContainer
-          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+          : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: () => _update(_currentFilter.copyWith(mainMode: mode)),
@@ -902,7 +901,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         e.cost == entry.cost &&
                         e.liters == entry.liters
                       );
-                      if (!_entries.any((e) => e.id == entry.id) && !exists) {
+                      if (!exists) {
                         _entries.add(entry);
                       }
                     }
@@ -992,22 +991,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona) ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
-    var status = await Permission.microphone.status;
-    if (!status.isGranted) {
-      status = await Permission.microphone.request();
-      if (!status.isGranted) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Brak uprawnień do mikrofonu w aplikacji.')),
-        );
-        return;
-      }
-    }
-
     StateSetter? dialogSetState;
     String recognizedText = '';
     
@@ -1037,9 +1024,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // POPRAWKA TUTAJ: Użycie SpeechListenOptions zamiast przestarzałego localeId
+    // Rozpoczynamy nasłuchiwanie przed otwarciem UI, żeby nie uruchamiało się wewnątrz funkcji budującej.
     _speech.listen(
-      listenOptions: stt.SpeechListenOptions(localeId: 'pl_PL'),
+      localeId: 'pl_PL',
       onResult: (val) {
         if (dialogSetState != null) {
           dialogSetState!(() {
@@ -1127,6 +1114,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
     
+    // Zabezpieczenie po zamknięciu okna.
     _speech.stop();
     _isListening = false;
   }
@@ -1637,10 +1625,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       var excel = Excel.createExcel();
 
-      // Zmiana nazwy domyślnego arkusza 'Sheet1' na 'LPG' zamiast jego usuwania
-      excel.rename('Sheet1', 'LPG');
-
-      void createSheetDataForType(String sheetName, FuelType type) {
+      void createSheetForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
         final list = _entriesForType(type); 
 
@@ -1682,49 +1667,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      // 1. Wypełnienie arkusza LPG
-      createSheetDataForType('LPG', FuelType.lpg);
+      createSheetForType('LPG', FuelType.lpg);
+      createSheetForType('Benzyna (PB)', FuelType.pb);
 
-      // 2. Utworzenie i wypełnienie nowego arkusza dla Benzyny (PB)
-      Sheet pbSheet = excel['Benzyna (PB)'];
-      final pbList = _entriesForType(FuelType.pb);
-      
-      pbSheet.appendRow([
-        'Data',
-        'Dystans (km)',
-        'Stan licznika (km)',
-        'Koszt (PLN)',
-        'Paliwo (L)',
-        'Pełny bak?',
-        'Spalanie (L/100km)',
-      ]);
-
-      for (var entry in pbList) {
-        pbSheet.appendRow([
-          '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
-          entry.tripDistance ?? '-',
-          entry.odometer ?? '-',
-          entry.cost,
-          entry.liters,
-          entry.isFullTank ? 'Tak' : 'Nie',
-          entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
-        ]);
-      }
-
-      double totalCostPb = _totalCostFor(FuelType.pb);
-      double totalLitersPb = _totalLitersFor(FuelType.pb);
-      double? avgConsPb = _calculateConsumptionForList(pbList);
-
-      pbSheet.appendRow([]);
-      pbSheet.appendRow([
-        'PODSUMOWANIE',
-        '-',
-        '-',
-        double.parse(totalCostPb.toStringAsFixed(2)),
-        double.parse(totalLitersPb.toStringAsFixed(2)),
-        '-',
-        avgConsPb != null ? double.parse(avgConsPb.toStringAsFixed(2)) : '-',
-      ]);
+      excel.delete('Sheet1'); 
 
       final directory = await getTemporaryDirectory();
       final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
