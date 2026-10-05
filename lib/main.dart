@@ -407,11 +407,21 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in TimeFilterOption.values) {
         String label = '';
         switch (option) {
-          case TimeFilterOption.month1: label = '1 miesiąc'; break;
-          case TimeFilterOption.months3: label = '3 miesiące'; break;
-          case TimeFilterOption.months6: label = '6 miesięcy'; break;
-          case TimeFilterOption.year1: label = '1 rok'; break;
-          case TimeFilterOption.all: label = 'Wszystko'; break;
+          case TimeFilterOption.month1:
+            label = '1 miesiąc';
+            break;
+          case TimeFilterOption.months3:
+            label = '3 miesiące';
+            break;
+          case TimeFilterOption.months6:
+            label = '6 miesięcy';
+            break;
+          case TimeFilterOption.year1:
+            label = '1 rok';
+            break;
+          case TimeFilterOption.all:
+            label = 'Wszystko';
+            break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -428,10 +438,18 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in CountFilterOption.values) {
         String label = '';
         switch (option) {
-          case CountFilterOption.c5: label = 'Ostatnie 5'; break;
-          case CountFilterOption.c10: label = 'Ostatnie 10'; break;
-          case CountFilterOption.c20: label = 'Ostatnie 20'; break;
-          case CountFilterOption.cAll: label = 'Wszystkie'; break;
+          case CountFilterOption.c5:
+            label = 'Ostatnie 5';
+            break;
+          case CountFilterOption.c10:
+            label = 'Ostatnie 10';
+            break;
+          case CountFilterOption.c20:
+            label = 'Ostatnie 20';
+            break;
+          case CountFilterOption.cAll:
+            label = 'Wszystkie';
+            break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -448,10 +466,18 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
       for (var option in DistanceFilterOption.values) {
         String label = '';
         switch (option) {
-          case DistanceFilterOption.km500: label = '500 km'; break;
-          case DistanceFilterOption.km1000: label = '1000 km'; break;
-          case DistanceFilterOption.km5000: label = '5000 km'; break;
-          case DistanceFilterOption.kmAll: label = 'Cały dystans'; break;
+          case DistanceFilterOption.km500:
+            label = '500 km';
+            break;
+          case DistanceFilterOption.km1000:
+            label = '1000 km';
+            break;
+          case DistanceFilterOption.km5000:
+            label = '5000 km';
+            break;
+          case DistanceFilterOption.kmAll:
+            label = 'Cały dystans';
+            break;
         }
         chips.add(Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -579,7 +605,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   FuelType _chartFuelType = FuelType.lpg;
-  FuelFilterState _fuelFilterState = FuelFilterState();
+  FuelFilterState _fuelFilterState = const FuelFilterState();
 
   // --- SPEECH TO TEXT ---
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -756,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // Bezpieczna konwersja wartości komórki Excel na String (gwarantowany typ zwracany: String)
+  // Bezpieczna konwersja wartości komórki Excel na String
   String _excelCellText(CellValue? value) {
     if (value == null) return '';
     switch (value) {
@@ -923,13 +949,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 onPressed: () {
                   setState(() {
                     for (var entry in importedEntries) {
-                      bool exists = _entries.any((e) => 
-                        e.date.year == entry.date.year &&
-                        e.date.month == entry.date.month &&
-                        e.date.day == entry.date.day &&
-                        e.cost == entry.cost &&
-                        e.liters == entry.liters
-                      );
+                      bool exists = _entries.any((e) =>
+                          e.date.year == entry.date.year &&
+                          e.date.month == entry.date.month &&
+                          e.date.day == entry.date.day &&
+                          e.cost == entry.cost &&
+                          e.liters == entry.liters);
                       if (!exists) {
                         _entries.add(entry);
                       }
@@ -974,19 +999,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
 
     final costMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:zł|złotych|pln)', caseSensitive: false).firstMatch(lowerText) ??
-                      RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+        RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
     if (costMatch != null) {
       detectedCost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
     }
 
     final litersMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litr|litry|litrów)', caseSensitive: false).firstMatch(lowerText) ??
-                        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
+        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
     if (litersMatch != null) {
       detectedLiters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
     }
 
     final tripMatch = RegExp(r'(?:dystans|przejechane|odcinek)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText) ??
-                      RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
+        RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
     if (tripMatch != null) {
       tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
     }
@@ -1038,7 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     StateSetter? dialogSetState;
     String recognizedText = '';
-    
+
     bool available = await _speech.initialize(
       onStatus: (val) {
         debugPrint('onStatus: $val');
@@ -1077,14 +1102,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
 
     if (!mounted) return;
-    
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           dialogSetState = setDialogState;
-          
+
           return AlertDialog(
             title: Row(
               children: [
@@ -1109,8 +1134,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    recognizedText.isEmpty 
-                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.') 
+                    recognizedText.isEmpty
+                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.')
                         : recognizedText,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     textAlign: TextAlign.center,
@@ -1153,7 +1178,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         },
       ),
     );
-    
+
     _speech.stop();
     _isListening = false;
   }
@@ -1379,17 +1404,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ? entryToEdit.odometer!.toStringAsFixed(0)
           : (initialOdometer != null ? initialOdometer.toStringAsFixed(0) : ''),
     );
-    
+
     FuelType selectedType = isEditing ? entryToEdit.fuelType : (initialType ?? FuelType.lpg);
     DateTime selectedDate = isEditing ? entryToEdit.date : (initialDate ?? DateTime.now());
     bool isFullTank = isEditing ? entryToEdit.isFullTank : true;
 
     double? previousOdometer(DateTime before) {
+      final endOfDay = DateTime(before.year, before.month, before.day, 23, 59, 59);
       final candidates = _entries
           .where((entry) =>
               entry.id != entryToEdit?.id &&
               entry.odometer != null &&
-              entry.date.isBefore(before))
+              !entry.date.isAfter(endOfDay))
           .toList()
         ..sort((a, b) => b.date.compareTo(a.date));
       return candidates.isEmpty ? null : candidates.first.odometer;
@@ -1470,7 +1496,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   },
                 ),
                 const SizedBox(height: 12),
-                
+
                 OutlinedButton.icon(
                   onPressed: () async {
                     final pickedDate = await showDatePicker(
@@ -1594,7 +1620,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   );
                   return;
                 }
-                
+
                 lastOdometer = previousOdometer(selectedDate);
                 final localOdo = lastOdometer;
 
@@ -1741,7 +1767,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      createSheetForType('Sheet1', FuelType.lpg);
+      excel.rename('Sheet1', 'LPG');
+      createSheetForType('LPG', FuelType.lpg);
       createSheetForType('Benzyna PB', FuelType.pb);
 
       final fileBytes = excel.save();
