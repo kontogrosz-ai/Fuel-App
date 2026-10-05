@@ -1636,7 +1636,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     try {
       var excel = Excel.createExcel();
 
-      void createSheetForType(String sheetName, FuelType type) {
+      // Zmiana nazwy domyślnego arkusza 'Sheet1' na 'LPG' zamiast jego usuwania
+      excel.rename('Sheet1', 'LPG');
+
+      void createSheetDataForType(String sheetName, FuelType type) {
         Sheet sheetObject = excel[sheetName];
         final list = _entriesForType(type); 
 
@@ -1678,10 +1681,49 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      createSheetForType('LPG', FuelType.lpg);
-      createSheetForType('Benzyna (PB)', FuelType.pb);
+      // 1. Wypełnienie arkusza LPG
+      createSheetDataForType('LPG', FuelType.lpg);
 
-      excel.delete('Sheet1'); 
+      // 2. Utworzenie i wypełnienie nowego arkusza dla Benzyny (PB)
+      Sheet pbSheet = excel['Benzyna (PB)'];
+      final pbList = _entriesForType(FuelType.pb);
+      
+      pbSheet.appendRow([
+        'Data',
+        'Dystans (km)',
+        'Stan licznika (km)',
+        'Koszt (PLN)',
+        'Paliwo (L)',
+        'Pełny bak?',
+        'Spalanie (L/100km)',
+      ]);
+
+      for (var entry in pbList) {
+        pbSheet.appendRow([
+          '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
+          entry.tripDistance ?? '-',
+          entry.odometer ?? '-',
+          entry.cost,
+          entry.liters,
+          entry.isFullTank ? 'Tak' : 'Nie',
+          entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
+        ]);
+      }
+
+      double totalCostPb = _totalCostFor(FuelType.pb);
+      double totalLitersPb = _totalLitersFor(FuelType.pb);
+      double? avgConsPb = _calculateConsumptionForList(pbList);
+
+      pbSheet.appendRow([]);
+      pbSheet.appendRow([
+        'PODSUMOWANIE',
+        '-',
+        '-',
+        double.parse(totalCostPb.toStringAsFixed(2)),
+        double.parse(totalLitersPb.toStringAsFixed(2)),
+        '-',
+        avgConsPb != null ? double.parse(avgConsPb.toStringAsFixed(2)) : '-',
+      ]);
 
       final directory = await getTemporaryDirectory();
       final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
