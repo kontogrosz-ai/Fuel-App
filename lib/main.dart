@@ -60,7 +60,7 @@ extension FuelTypeExtension on FuelType {
   String get label {
     switch (this) {
       case FuelType.pb:
-        return 'Benzyna (PB)';
+        return 'PB';
       case FuelType.lpg:
         return 'LPG';
     }
@@ -589,7 +589,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
+    // Zmieniono długość tabController na 4 zakłady (LPG, PB, Wykresy, Stats)
+    _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
     _initialize();
   }
 
@@ -1137,7 +1138,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return applyFuelFilter(typeEntries, _fuelFilterState);
   }
 
-  // Metoda pobierająca przefiltrowane dane dla wykresów przy użyciu osobnego stanu _chartsFilterState
   FilterResult _getChartFilterResultForType(FuelType type) {
     final typeEntries = _entries.where((e) => e.fuelType == type).toList();
     return applyFuelFilter(typeEntries, _chartsFilterState);
@@ -1692,7 +1692,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
 
       createSheetForType('LPG', FuelType.lpg);
-      createSheetForType('Benzyna (PB)', FuelType.pb);
+      createSheetForType('PB', FuelType.pb);
 
       final directory = await getTemporaryDirectory();
       final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
@@ -1798,13 +1798,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fuel App'),
+        title: const Text('Fuel App - Zarządzanie paliwem'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
             Tab(text: 'LPG', icon: Icon(Icons.propane_tank)),
-            Tab(text: 'Benzyna (PB)', icon: Icon(Icons.local_gas_station)),
+            Tab(text: 'PB', icon: Icon(Icons.local_gas_station)),
             Tab(text: 'Wykresy', icon: Icon(Icons.bar_chart)),
+            Tab(text: 'Stats', icon: Icon(Icons.analytics)), // Nowa zakładka Stats
           ],
         ),
         actions: [
@@ -1848,6 +1849,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     _buildFuelTab(FuelType.lpg),
                     _buildFuelTab(FuelType.pb),
                     _buildChartsTab(),
+                    _buildStatsTab(), // Widok dla nowej zakładki Stats
                   ],
                 ),
       floatingActionButton: FloatingActionButton(
@@ -2022,7 +2024,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 SegmentedButton<FuelType>(
                   segments: const [
                     ButtonSegment(value: FuelType.lpg, label: Text('LPG'), icon: Icon(Icons.propane_tank)),
-                    ButtonSegment(value: FuelType.pb, label: Text('Benzyna (PB)'), icon: Icon(Icons.local_gas_station)),
+                    ButtonSegment(value: FuelType.pb, label: Text('PB'), icon: Icon(Icons.local_gas_station)),
                   ],
                   selected: {_chartFuelType},
                   onSelectionChanged: (Set<FuelType> newSelection) {
@@ -2032,7 +2034,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
-          // Osobny widget filtrowania dedykowany dla wykresów
           FuelFilterWidget(
             initialFilterState: _chartsFilterState,
             onFilterChanged: (newState) {
@@ -2141,6 +2142,109 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // Nowa zakładka Stats - ogólne podsumowanie statystyk
+  Widget _buildStatsTab() {
+    final lpgEntries = _entries.where((e) => e.fuelType == FuelType.lpg).toList();
+    final pbEntries = _entries.where((e) => e.fuelType == FuelType.pb).toList();
+
+    final totalLpgCost = lpgEntries.fold(0.0, (sum, e) => sum + e.cost);
+    final totalPbCost = pbEntries.fold(0.0, (sum, e) => sum + e.cost);
+    final totalCostAll = totalLpgCost + totalPbCost;
+
+    final totalLpgLiters = lpgEntries.fold(0.0, (sum, e) => sum + e.liters);
+    final totalPbLiters = pbEntries.fold(0.0, (sum, e) => sum + e.liters);
+
+    final avgLpgCons = _calculateConsumptionForList(lpgEntries);
+    final avgPbCons = _calculateConsumptionForList(pbEntries);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Podsumowanie ogólne statystyk',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Text('Całkowite koszty paliwa', style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${totalCostAll.toStringAsFixed(2)} PLN',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal),
+                  ),
+                  const Divider(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem('LPG Koszt', '${totalLpgCost.toStringAsFixed(2)} PLN'),
+                      _buildStatItem('PB Koszt', '${totalPbCost.toStringAsFixed(2)} PLN'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Text('Zużycie paliwa', style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem('LPG Litry', '${totalLpgLiters.toStringAsFixed(1)} L'),
+                      _buildStatItem('PB Litry', '${totalPbLiters.toStringAsFixed(1)} L'),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem('Śr. spalanie LPG', avgLpgCons != null ? '${avgLpgCons.toStringAsFixed(2)} L/100' : 'Brak'),
+                      _buildStatItem('Śr. spalanie PB', avgPbCons != null ? '${avgPbCons.toStringAsFixed(2)} L/100' : 'Brak'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Text('Liczba wpisów', style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildStatItem('Tankowania LPG', '${lpgEntries.length}'),
+                      _buildStatItem('Tankowania PB', '${pbEntries.length}'),
+                      _buildStatItem('Razem', '${_entries.length}'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatItem(String title, String value) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -2153,7 +2257,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         const SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
         ),
       ],
     );
