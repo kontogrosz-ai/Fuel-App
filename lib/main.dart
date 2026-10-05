@@ -991,7 +991,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     };
   }
 
-  // --- OBSŁUGA NAGRYWANIA GŁOSU (Zaktualizowana i naprawiona) ---
+  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
   Future<void> _startVoiceInput({
     Function(Map<String, dynamic>)? onRecognized,
   }) async {
@@ -1024,7 +1024,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     _isListening = true;
 
-    // Rozpoczynamy nasłuchiwanie przed otwarciem UI, żeby nie uruchamiało się wewnątrz funkcji budującej.
     _speech.listen(
       localeId: 'pl_PL',
       onResult: (val) {
@@ -1114,7 +1113,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ),
     );
     
-    // Zabezpieczenie po zamknięciu okna.
     _speech.stop();
     _isListening = false;
   }
@@ -1259,6 +1257,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  // --- ZAKTUALIZOWANA FUNKCJA OCR Z NOWYMcostRegex ---
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
     double? detectedCost;
@@ -1278,7 +1277,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    final RegExp costRegex = RegExp(r'(?:suma|razem|kwota)\s*[:=]?\s*(\d+[\.,]\d{2})', caseSensitive: false);
+    // Wdrożone zaktualizowane wyrażenie regularne dla kosztu
+    final RegExp costRegex = RegExp(
+      r'(?:suma|razem|kwota|suma\s+pln)(?:\s+(?:pln|zł|zl))?\s*[:=]?\s*(\d+[\.,]\d{2})',
+      caseSensitive: false,
+    );
+    
     final costMatch = costRegex.firstMatch(text);
     if (costMatch != null) {
       String rawCost = costMatch.group(1)!.replaceAll(',', '.');
@@ -1624,9 +1628,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     try {
       var excel = Excel.createExcel();
-
-      // ZMIANA: Zamiast usuwać 'Sheet1' (co powodowało błąd modyfikacji niemodyfikowalnej listy),
-      // zmieniamy nazwę domyślnego arkusza na 'LPG'.
       excel.rename('Sheet1', 'LPG');
 
       void createSheetForType(String sheetName, FuelType type) {
@@ -1671,10 +1672,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]);
       }
 
-      // Wypełniamy przemianowany arkusz LPG
       createSheetForType('LPG', FuelType.lpg);
-      
-      // Tworzymy nowy arkusz dla Benzyny
       createSheetForType('Benzyna (PB)', FuelType.pb);
 
       final directory = await getTemporaryDirectory();
