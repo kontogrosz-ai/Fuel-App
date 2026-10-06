@@ -4,12 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:excel/excel.dart' hide Border;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -472,7 +470,7 @@ class _FuelFilterWidgetState extends State<FuelFilterWidget> {
           onPressed: () async {
             final picked = await showDateRangePicker(
               context: context,
-              firstDate: DateTime(2026),
+              firstDate: DateTime(2020),
               lastDate: DateTime.now(),
               initialDateRange: _currentFilter.customDateRange,
             );
@@ -578,10 +576,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   FuelType _chartFuelType = FuelType.lpg;
   FuelFilterState _fuelFilterState = FuelFilterState();
-
-  // --- SPEECH TO TEXT ---
-  final stt.SpeechToText _speech = stt.SpeechToText();
-  bool _isListening = false;
 
   @override
   void initState() {
@@ -754,369 +748,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _importExcel() async {
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['xlsx'],
-      );
-
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final bytes = await file.readAsBytes();
-        final excel = Excel.decodeBytes(bytes);
-
-        List<FuelEntry> importedEntries = [];
-
-        for (var tableKey in excel.tables.keys) {
-          final table = excel.tables[tableKey];
-          if (table == null) continue;
-
-          FuelType type = FuelType.lpg;
-          if (tableKey.toUpperCase().contains('PB') || tableKey.toUpperCase().contains('BENZYNA')) {
-            type = FuelType.pb;
-          }
-
-          for (int i = 1; i < table.rows.length; i++) {
-            final row = table.rows[i];
-            if (row.isEmpty || row[0] == null) continue;
-
-            final firstCellVal = row[0]?.value?.toString() ?? '';
-            if (firstCellVal.isEmpty || firstCellVal == 'PODSUMOWANIE' || firstCellVal == '-') {
-              continue;
-            }
-
-            DateTime? entryDate;
-            final cleanStr = firstCellVal.trim();
-            if (cleanStr.contains('.')) {
-              final parts = cleanStr.split('.');
-              if (parts.length == 3) {
-                final day = int.tryParse(parts[0]);
-                final month = int.tryParse(parts[1]);
-                final year = int.tryParse(parts[2]);
-                if (day != null && month != null && year != null) {
-                  entryDate = DateTime(year, month, day);
-                }
-              }
-            } else if (cleanStr.contains('-')) {
-              entryDate = DateTime.tryParse(cleanStr);
-            } else if (cleanStr.contains('/')) {
-              final parts = cleanStr.split('/');
-              if (parts.length == 3) {
-                final day = int.tryParse(parts[0]);
-                final month = int.tryParse(parts[1]);
-                final year = int.tryParse(parts[2]);
-                if (day != null && month != null && year != null) {
-                  entryDate = DateTime(year, month, day);
-                }
-              }
-            }
-
-            if (entryDate == null) continue;
-
-            double? tripDistance;
-            if (row.length > 1 && row[1]?.value != null) {
-              final valStr = row[1]!.value.toString();
-              if (valStr != '-' && valStr.isNotEmpty) {
-                tripDistance = double.tryParse(valStr.replaceAll(',', '.'));
-              }
-            }
-
-            double? odometer;
-            if (row.length > 2 && row[2]?.value != null) {
-              final valStr = row[2]!.value.toString();
-              if (valStr != '-' && valStr.isNotEmpty) {
-                odometer = double.tryParse(valStr.replaceAll(',', '.'));
-              }
-            }
-
-            double cost = 0.0;
-            if (row.length > 3 && row[3]?.value != null) {
-              final valStr = row[3]!.value.toString();
-              cost = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
-            }
-
-            double liters = 0.0;
-            if (row.length > 4 && row[4]?.value != null) {
-              final valStr = row[4]!.value.toString();
-              liters = double.tryParse(valStr.replaceAll(',', '.')) ?? 0.0;
-            }
-
-            if (cost > 0 && liters > 0) {
-              importedEntries.add(FuelEntry(
-                fuelType: type,
-                cost: cost,
-                liters: liters,
-                odometer: odometer,
-                tripDistance: tripDistance,
-                date: entryDate,
-                isFullTank: true,
-              ));
-            }
-          }
-        }
-
-        if (importedEntries.isEmpty) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nie znaleziono poprawnych danych w pliku Excel.')),
-          );
-          return;
-        }
-
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Import danych z Excela'),
-            content: Text('Wczytano ${importedEntries.length} wpisów z pliku Excel. Co chcesz zrobić?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
-              ),
-              OutlinedButton(
-                onPressed: () {
-                  setState(() {
-                    _entries = importedEntries;
-                  });
-                  _saveEntriesToFile();
-                  Navigator.pop(ctx);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Zastąpiono bazę danymi z pliku Excel.')),
-                    );
-                  }
-                },
-                child: const Text('Zastąp obecne'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    for (var entry in importedEntries) {
-                      bool exists = _entries.any((e) => 
-                        e.date.year == entry.date.year &&
-                        e.date.month == entry.date.month &&
-                        e.date.day == entry.date.day &&
-                        e.cost == entry.cost &&
-                        e.liters == entry.liters
-                      );
-                      if (!exists) {
-                        _entries.add(entry);
-                      }
-                    }
-                  });
-                  _saveEntriesToFile();
-                  Navigator.pop(ctx);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Połączono dane z pliku Excel pomyślnie.')),
-                    );
-                  }
-                },
-                child: const Text('Połącz (Scal)'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Błąd podczas importu pliku Excel: $e')),
-      );
-    }
-  }
-
-  // --- PARSOWANIE DANYCH GŁOSOWYCH (SPEECH-TO-TEXT) ---
-  Map<String, dynamic> _extractFuelDataFromSpeech(String text) {
-    double? detectedLiters;
-    double? detectedCost;
-    FuelType detectedType = FuelType.lpg;
-    double? tripDistance;
-    double? odometer;
-
-    final lowerText = text.toLowerCase();
-
-    if (lowerText.contains('pb') || lowerText.contains('benzyn') || lowerText.contains('95') || lowerText.contains('98')) {
-      detectedType = FuelType.pb;
-    } else if (lowerText.contains('lpg') || lowerText.contains('gaz') || lowerText.contains('autogaz')) {
-      detectedType = FuelType.lpg;
-    }
-
-    final costMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:zł|złotych|pln)', caseSensitive: false).firstMatch(lowerText) ??
-                      RegExp(r'(?:koszt|kwota|cena)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
-    if (costMatch != null) {
-      detectedCost = double.tryParse(costMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    final litersMatch = RegExp(r'(\d+[\.,]?\d*)\s*(?:l|litr|litry|litrów)', caseSensitive: false).firstMatch(lowerText) ??
-                        RegExp(r'(?:litry|litrów|zatankowane)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
-    if (litersMatch != null) {
-      detectedLiters = double.tryParse(litersMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    final tripMatch = RegExp(r'(?:dystans|przejechane|odcinek)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText) ??
-                      RegExp(r'(\d+[\.,]?\d*)\s*km', caseSensitive: false).firstMatch(lowerText);
-    if (tripMatch != null) {
-      tripDistance = double.tryParse(tripMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    final odoMatch = RegExp(r'(?:licznik|stan licznika)\s*(\d+[\.,]?\d*)', caseSensitive: false).firstMatch(lowerText);
-    if (odoMatch != null) {
-      odometer = double.tryParse(odoMatch.group(1)!.replaceAll(',', '.'));
-    }
-
-    if (detectedCost == null || detectedLiters == null) {
-      final matches = RegExp(r'\b\d+[\.,]?\d*\b')
-          .allMatches(text)
-          .map((m) => double.tryParse(m.group(0)!.replaceAll(',', '.')))
-          .whereType<double>()
-          .toList();
-
-      if (matches.isNotEmpty && detectedCost == null) {
-        detectedCost = matches[0];
-      }
-      if (matches.length > 1 && detectedLiters == null) {
-        detectedLiters = matches[1];
-      }
-    }
-
-    return {
-      'cost': detectedCost,
-      'liters': detectedLiters,
-      'detectedType': detectedType,
-      'tripDistance': tripDistance,
-      'odometer': odometer,
-    };
-  }
-
-  // --- OBSŁUGA NAGRYWANIA GŁOSU ---
-  Future<void> _startVoiceInput({
-    Function(Map<String, dynamic>)? onRecognized,
-  }) async {
-    StateSetter? dialogSetState;
-    String recognizedText = '';
-    
-    bool available = await _speech.initialize(
-      onStatus: (val) {
-        debugPrint('onStatus: $val');
-        if (val == 'done' || val == 'notListening') {
-          if (dialogSetState != null) {
-            dialogSetState!(() {
-              _isListening = false;
-            });
-          } else {
-            _isListening = false;
-          }
-        }
-      },
-      onError: (val) => debugPrint('onError: $val'),
-    );
-
-    if (!available) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rozpoznawanie mowy jest niedostępne na tym urządzeniu.')),
-      );
-      return;
-    }
-
-    _isListening = true;
-
-    _speech.listen(
-      localeId: 'pl_PL',
-      onResult: (val) {
-        if (dialogSetState != null) {
-          dialogSetState!(() {
-            recognizedText = val.recognizedWords;
-          });
-        }
-      },
-    );
-
-    if (!mounted) return;
-    
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          dialogSetState = setDialogState;
-          
-          return AlertDialog(
-            title: Row(
-              children: [
-                Icon(Icons.mic, color: _isListening ? Colors.red : Colors.grey),
-                const SizedBox(width: 8),
-                Text(_isListening ? 'Mów teraz...' : 'Zakończono'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Mów np.: "Koszt 150 złotych, 25 litrów, dystans 400 km, gaz"',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    recognizedText.isEmpty 
-                        ? (_isListening ? 'Słucham...' : 'Nie rozpoznano mowy.') 
-                        : recognizedText,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _speech.stop();
-                  _isListening = false;
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Anuluj', style: TextStyle(color: Colors.red)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  _speech.stop();
-                  _isListening = false;
-                  Navigator.pop(ctx);
-
-                  final parsed = _extractFuelDataFromSpeech(recognizedText);
-                  if (onRecognized != null) {
-                    onRecognized(parsed);
-                  } else {
-                    _showEntryFormDialog(
-                      initialCost: parsed['cost'],
-                      initialLiters: parsed['liters'],
-                      initialType: parsed['detectedType'],
-                      initialTrip: parsed['tripDistance'],
-                      initialOdometer: parsed['odometer'],
-                    );
-                  }
-                },
-                child: const Text('Zatwierdź'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    
-    _speech.stop();
-    _isListening = false;
-  }
-
   FilterResult _getFilterResultForType(FuelType type) {
     final typeEntries = _entries.where((e) => e.fuelType == type).toList();
     return applyFuelFilter(typeEntries, _fuelFilterState);
@@ -1125,12 +756,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<FuelEntry> _entriesForType(FuelType type) {
     return _getFilterResultForType(type).filteredEntries;
   }
-
-  double _totalCostFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.cost);
-
-  double _totalLitersFor(FuelType type) =>
-      _entriesForType(type).fold(0.0, (sum, item) => sum + item.liters);
 
   double? _calculateConsumptionForList(List<FuelEntry> list) {
     if (list.isEmpty) return null;
@@ -1257,7 +882,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  // --- ZAKTUALIZOWANA FUNKCJA OCR Z NOWYMcostRegex ---
   Map<String, dynamic> _extractFuelData(String text) {
     double? detectedLiters;
     double? detectedCost;
@@ -1277,7 +901,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       detectedLiters = double.tryParse(rawLiters);
     }
 
-    // Wdrożone zaktualizowane wyrażenie regularne dla kosztu
     final RegExp costRegex = RegExp(
       r'(?:suma|razem|kwota|suma\s+pln)(?:\s+(?:pln|zł|zl))?\s*[:=]?\s*(\d+[\.,]\d{2})',
       caseSensitive: false,
@@ -1373,37 +996,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
-              IconButton(
-                icon: const Icon(Icons.mic, color: Colors.teal),
-                tooltip: 'Podyktuj dane głosowo',
-                onPressed: () {
-                  _startVoiceInput(onRecognized: (parsed) {
-                    setDialogState(() {
-                      if (parsed['cost'] != null) {
-                        costController.text = (parsed['cost'] as double).toStringAsFixed(2);
-                      }
-                      if (parsed['liters'] != null) {
-                        litersController.text = (parsed['liters'] as double).toStringAsFixed(2);
-                      }
-                      if (parsed['tripDistance'] != null) {
-                        tripController.text = (parsed['tripDistance'] as double).toStringAsFixed(1);
-                      }
-                      if (parsed['odometer'] != null) {
-                        odometerController.text = (parsed['odometer'] as double).toStringAsFixed(0);
-                      }
-                      if (parsed['detectedType'] != null) {
-                        selectedType = parsed['detectedType'] as FuelType;
-                      }
-                    });
-                  });
-                },
-              ),
-            ],
-          ),
+          title: Text(isEditing ? 'Edytuj wpis' : (initialCost != null ? 'Zweryfikuj dane' : 'Dodaj wpis')),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1447,7 +1040,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     final pickedDate = await showDatePicker(
                       context: context,
                       initialDate: selectedDate,
-                      firstDate: DateTime(2026),
+                      firstDate: DateTime(2020),
                       lastDate: DateTime.now(),
                     );
                     if (pickedDate != null) {
@@ -1614,94 +1207,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
-  Future<void> _exportToExcel() async {
-    if (_entries.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Brak danych do wyeksportowania.')),
-      );
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Generowanie pliku Excel...')),
-    );
-
-    try {
-      var excel = Excel.createExcel();
-      excel.rename('Sheet1', 'LPG');
-
-      void createSheetForType(String sheetName, FuelType type) {
-        Sheet sheetObject = excel[sheetName];
-        final list = _entriesForType(type); 
-
-        sheetObject.appendRow([
-          'Data',
-          'Dystans (km)',
-          'Stan licznika (km)',
-          'Koszt (PLN)',
-          'Paliwo (L)',
-          'Pełny bak?',
-          'Spalanie (L/100km)',
-        ]);
-
-        for (var entry in list) {
-          sheetObject.appendRow([
-            '${entry.date.day.toString().padLeft(2, '0')}.${entry.date.month.toString().padLeft(2, '0')}.${entry.date.year}',
-            entry.tripDistance ?? '-',
-            entry.odometer ?? '-',
-            entry.cost,
-            entry.liters,
-            entry.isFullTank ? 'Tak' : 'Nie',
-            entry.singleConsumption != null ? double.parse(entry.singleConsumption!.toStringAsFixed(2)) : '-',
-          ]);
-        }
-
-        double totalCost = _totalCostFor(type);
-        double totalLiters = _totalLitersFor(type);
-        double? avgCons = _calculateConsumptionForList(list);
-
-        sheetObject.appendRow([]);
-        sheetObject.appendRow([
-          'PODSUMOWANIE',
-          '-',
-          '-',
-          double.parse(totalCost.toStringAsFixed(2)),
-          double.parse(totalLiters.toStringAsFixed(2)),
-          '-',
-          avgCons != null ? double.parse(avgCons.toStringAsFixed(2)) : '-',
-        ]);
-      }
-
-      createSheetForType('LPG', FuelType.lpg);
-      createSheetForType('Benzyna (PB)', FuelType.pb);
-
-      final directory = await getTemporaryDirectory();
-      final dateStr = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
-      final filePath = '${directory.path}/Raport_Paliwa_$dateStr.xlsx';
-      final fileBytes = excel.save();
-
-      if (fileBytes != null) {
-        File(filePath)
-          ..createSync(recursive: true)
-          ..writeAsBytesSync(fileBytes);
-        
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        
-        await Share.shareXFiles(
-          [XFile(filePath)], 
-          subject: 'Raport z aplikacji Fuel App',
-          text: 'Rozdzielony raport zużycia paliwa LPG i PB z aplikacji.',
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Błąd podczas eksportu: $e')),
-      );
-    }
-  }
-
   void _showAddOptions() {
     showModalBottomSheet(
       context: context,
@@ -1718,14 +1223,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   'Dodaj nowe tankowanie',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.mic, color: Colors.deepOrange),
-                title: const Text('Głosowe wprowadzanie (Speech-to-Text)'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _startVoiceInput();
-                },
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt),
@@ -1760,14 +1257,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   _importJson();
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.table_chart),
-                title: const Text('Importuj z Excela (.xlsx)'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _importExcel();
-                },
-              ),
             ],
           ),
         );
@@ -1791,17 +1280,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'export_excel') {
-                _exportToExcel();
-              } else if (value == 'export_json') {
+              if (value == 'export_json') {
                 _exportJson();
               }
             },
             itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(
-                value: 'export_excel',
-                child: Text('Eksportuj do Excela (.xlsx)'),
-              ),
               const PopupMenuItem(
                 value: 'export_json',
                 child: Text('Eksportuj kopia zapasowa (JSON)'),
