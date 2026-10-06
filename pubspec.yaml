@@ -1,44 +1,29 @@
 name: fuel_app
-description: Aplikacja do śledzenia zużycia paliwa (LPG i PB) z funkcją OCR.
+description: "Aplikacja do monitorowania tankowań i zużycia paliwa."
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-flutter:
-sdk: flutter
-cupertino_icons: ^1.0.8
-speech_to_text: ^7.0.0
+  flutter:
+    sdk: flutter
 
-Obsługa uprawnień systemowych (w tym mikrofonu na Android 16)
-
-permission_handler: ^11.3.1
-
-Wybór plików i plików graficznych
-
-file_picker: ^8.1.2
-image_picker: ^1.1.2
-
-OCR i przetwarzanie tekstu
-
-google_mlkit_text_recognition: ^0.13.0
-
-Obsługa ścieżek i udostępniania
-
-path_provider: ^2.1.5
-share_plus: ^10.0.0
-
-Przechowywanie preferencji i kopii zapasowych
-
-shared_preferences: ^2.3.2
+  # Pakiety używane w main.dart
+  image_picker: ^1.1.2
+  google_mlkit_text_recognition: ^0.13.0
+  path_provider: ^2.1.4
+  share_plus: ^10.0.2
+  file_picker: ^8.1.2
+  shared_preferences: ^2.3.2
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
-flutter_test:
-sdk: flutter
-flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
 
 flutter:
-uses-material-design: true
+  uses-material-design: true
